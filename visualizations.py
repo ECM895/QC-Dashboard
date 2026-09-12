@@ -339,12 +339,11 @@ def render_category_box(title, total_val, val1, val2, val3, val4, rate,
 
     body = "".join(cells)
     html = (
-        f'<a href="?category={cat_id}" target="_self" style="text-decoration:none;color:inherit;display:block;">' +
         f'<div class="bento-card">' +
         f'  <div class="bento-header">' +
         f'    <div class="bento-title-group">' +
         f'      <div class="bento-icon-badge">{icon}</div>' +
-        f'      <div class="bento-title">{title}<span class="bento-arrow"> ↗</span></div>' +
+        f'      <div class="bento-title">{title}</div>' +
         f'    </div>' +
         f'    <div class="bento-rate-badge" style="background:{bb};color:{bc};border:1px solid {bbd};">' +
         f'      {rl}: {rate}</div>' +
@@ -353,7 +352,7 @@ def render_category_box(title, total_val, val1, val2, val3, val4, rate,
         f'  <div class="bento-progress-container">' +
         f'    <div class="bento-progress-track">' +
         f'      <div class="bento-progress-fill" style="width:{min(rate_num,100)}%;background:{pc};"></div>' +
-        f'    </div></div></div></a>'
+        f'    </div></div></div>'
     )
     st.markdown(html, unsafe_allow_html=True)
 

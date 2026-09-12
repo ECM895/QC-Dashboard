@@ -272,55 +272,30 @@ date_range_str = f"{st.session_state.start_date.strftime('%d %b %Y')} – {st.se
 render_hero_header("Royal Diriyah Opera House", "DII-Jasara", date_range_str)
 
 # ── Professional Interactive Navigation Tab Bar ──────────────────────────────
-def _tab_html(key, label, current):
-    is_active = (current == key)
-    if is_active:
-        style = (
-            "flex: 1; text-align: center; padding: 10px 14px; border-radius: 9px; font-size: 0.86rem; "
-            "font-weight: 700; color: #FFFFFF !important; text-decoration: none !important; "
-            "display: flex; align-items: center; justify-content: center; gap: 6px; "
-            "background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); "
-            "border: 1.5px solid #1D4ED8; "
-            "box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35), 0 1px 2px rgba(0,0,0,0.1); "
-            "transform: translateY(-1px);"
-        )
-    else:
-        style = (
-            "flex: 1; text-align: center; padding: 10px 14px; border-radius: 9px; font-size: 0.86rem; "
-            "font-weight: 600; color: #334155 !important; text-decoration: none !important; "
-            "display: flex; align-items: center; justify-content: center; gap: 6px; "
-            "background: #FFFFFF; "
-            "border: 1.5px solid #CBD5E1; "
-            "box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04); "
-            "transition: all 0.15s ease;"
-        )
-    return f'<a href="?nav={key}" target="_self" class="nav-tab {"active" if is_active else ""}" style="{style}">{label}</a>'
-
-nav_param = st.query_params.get("nav", None)
-if nav_param and nav_param in ["OVERVIEW","DRILLDOWN","NCR","CONCRETE","TRAINING","LESSONS","MONTHLY","ADMIN"]:
-    st.session_state.current_view = nav_param
-    st.query_params.clear()
-
-cv = st.session_state.current_view
 user_is_admin = (st.session_state.get("user_info", {}).get("role") == "admin")
-bar_style = (
-    "display: flex; gap: 8px; background: #F8FAFC; border: 1.5px solid #E2E8F0; "
-    "border-radius: 13px; padding: 8px; margin-bottom: 18px; "
-    "box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);"
-)
-nav_html = (
-    f'<div class="nav-tab-bar" style="{bar_style}">'
-    + _tab_html("OVERVIEW",   "📊 Executive Overview",        cv)
-    + _tab_html("DRILLDOWN",  "🔍 Category Wise",             cv)
-    + _tab_html("NCR",        "⚠️ Client NCR Register",       cv)
-    + _tab_html("CONCRETE",   "🏗️ Concrete Pouring",         cv)
-    + _tab_html("TRAINING",   "🎓 Quality Training & TBT",    cv)
-    + _tab_html("LESSONS",    "💡 Lessons Learned",           cv)
-    + _tab_html("MONTHLY",    "📅 Monthly Status Report",     cv)
-    + (_tab_html("ADMIN",     "👥 User & Access Audit",       cv) if user_is_admin else "")
-    + '</div>'
-)
-st.markdown(nav_html, unsafe_allow_html=True)
+nav_definitions = [
+    ("OVERVIEW",   "📊 Executive Overview"),
+    ("DRILLDOWN",  "🔍 Category Wise"),
+    ("NCR",        "⚠️ Client NCR Register"),
+    ("CONCRETE",   "🏗️ Concrete Placement"),
+    ("TRAINING",   "🎓 Quality Training & TBT"),
+    ("LESSONS",    "💡 Lessons Learned"),
+    ("MONTHLY",    "📅 Monthly Status Report")
+]
+if user_is_admin:
+    nav_definitions.append(("ADMIN", "👥 User & Access Audit"))
+
+nav_cols = st.columns(len(nav_definitions))
+for idx, (k, lbl) in enumerate(nav_definitions):
+    with nav_cols[idx]:
+        is_cur = (st.session_state.current_view == k)
+        b_type = "primary" if is_cur else "secondary"
+        if st.button(lbl, key=f"top_nav_{k}", type=b_type, use_container_width=True):
+            st.session_state.current_view = k
+            st.session_state.page_num = 1
+            st.rerun()
+
+st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 
 
 
@@ -425,6 +400,15 @@ if st.session_state.current_view == "OVERVIEW":
             else:
                 rate = f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
                 render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", rate, is_alt_color=(i % 4 >= 2), is_ncr=False, cat_id=cat)
+            
+            if st.button(f"🔍 Open {cat} Analysis & Register ➔", key=f"btn_nav_cat_{cat}", use_container_width=True):
+                if cat == "NCR":
+                    st.session_state.current_view = "NCR"
+                else:
+                    st.session_state.current_view = "DRILLDOWN"
+                    st.session_state.selected_category = cat
+                st.session_state.page_num = 1
+                st.rerun()
 
         with col2:
             if i + 1 < len(categories):
@@ -437,6 +421,15 @@ if st.session_state.current_view == "OVERVIEW":
                 else:
                     rate = f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
                     render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", rate, is_alt_color=((i+1) % 4 >= 2), is_ncr=False, cat_id=cat)
+
+                if st.button(f"🔍 Open {cat} Analysis & Register ➔", key=f"btn_nav_cat_{cat}", use_container_width=True):
+                    if cat == "NCR":
+                        st.session_state.current_view = "NCR"
+                    else:
+                        st.session_state.current_view = "DRILLDOWN"
+                        st.session_state.selected_category = cat
+                    st.session_state.page_num = 1
+                    st.rerun()
 
     st.markdown("<hr>", unsafe_allow_html=True)
     section_title("📈 Performance Analytics & Proportional Status Distribution")
