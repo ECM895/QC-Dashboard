@@ -38,10 +38,8 @@ span:not([class*="material"]):not([data-testid="stIcon"]):not([class*="Material"
 .stApp{background:#F0F4F8!important;}
 #MainMenu{visibility:hidden!important;display:none!important;}
 footer{visibility:hidden!important;display:none!important;}
-header[data-testid="stHeader"]{background:transparent!important;height:2rem!important;}
-[data-testid="stStatusWidget"],.stDeployButton,
-[data-testid="stToolbar"],div[data-testid="stToolbarActions"],
-div[class*="viewerBadge"],div[class*="Toolbar"]{display:none!important;visibility:hidden!important;}
+header[data-testid="stHeader"]{background:transparent!important;z-index:99999!important;}
+[data-testid="stStatusWidget"],.stDeployButton{display:none!important;visibility:hidden!important;}
 
 /* Sidebar */
 [data-testid="stSidebar"]{background:#0F172A!important;border-right:1px solid rgba(255,255,255,.06)!important;}
@@ -55,25 +53,22 @@ div[class*="viewerBadge"],div[class*="Toolbar"]{display:none!important;visibilit
 [data-testid="stSidebar"] [data-testid="stBaseButton-secondary"]:hover{
   background:rgba(255,255,255,.12)!important;color:#F1F5F9!important;}
 
-/* Sidebar toggle */
+/* Sidebar toggle button (Always visible when collapsed) */
 [data-testid="collapsedControl"]{
-  display:flex!important;align-items:center!important;justify-content:center!important;
-  visibility:visible!important;opacity:1!important;position:fixed!important;
-  z-index:999999!important;top:12px!important;left:14px!important;
-  width:40px!important;height:40px!important;background:#1E293B!important;
-  border:1.5px solid #3B82F6!important;border-radius:10px!important;
-  box-shadow:0 4px 14px rgba(15,23,42,.5)!important;cursor:pointer!important;
-  transition:all .2s ease!important;}
+  display:flex!important;visibility:visible!important;opacity:1!important;
+  position:fixed!important;top:10px!important;left:10px!important;
+  z-index:999999!important;cursor:pointer!important;
+  width:42px!important;height:42px!important;
+  background:#0F172A!important;border:1.5px solid #2563EB!important;
+  border-radius:10px!important;box-shadow:0 4px 14px rgba(15,23,42,0.4)!important;
+}
 [data-testid="collapsedControl"]:hover{
-  background:#2563EB!important;border-color:#93C5FD!important;
-  box-shadow:0 6px 20px rgba(37,99,235,.45)!important;transform:scale(1.08);}
-[data-testid="collapsedControl"]::before{
-  content:""!important;display:block!important;width:20px!important;height:20px!important;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2360A5FA' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2' ry='2'/%3E%3Cline x1='9' x2='9' y1='3' y2='21'/%3E%3Cpath d='m14 9 3 3-3 3'/%3E%3C/svg%3E")!important;
-  background-repeat:no-repeat!important;background-position:center!important;background-size:contain!important;}
-[data-testid="collapsedControl"]:hover::before{
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2' ry='2'/%3E%3Cline x1='9' x2='9' y1='3' y2='21'/%3E%3Cpath d='m14 9 3 3-3 3'/%3E%3C/svg%3E")!important;}
-[data-testid="collapsedControl"] span,[data-testid="collapsedControl"] svg{display:none!important;}
+  background:#1D4ED8!important;border-color:#60A5FA!important;
+}
+[data-testid="collapsedControl"] svg{
+  color:#FFFFFF!important;stroke:#FFFFFF!important;fill:#FFFFFF!important;
+  width:22px!important;height:22px!important;display:block!important;
+}
 
 /* Global buttons */
 [data-testid="stBaseButton-primary"]{
