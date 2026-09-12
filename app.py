@@ -292,16 +292,16 @@ render_hero_header("Royal Diriyah Opera House", "DII-Jasara", date_range_str)
 # ── Professional Interactive Navigation Tab Bar ──────────────────────────────
 user_is_admin = (st.session_state.get("user_info", {}).get("role") == "admin")
 nav_definitions = [
-    ("OVERVIEW",   "📊 Executive Overview"),
+    ("OVERVIEW",   "📊 Overview"),
     ("DRILLDOWN",  "🔍 Category Wise"),
-    ("NCR",        "⚠️ Client NCR Register"),
-    ("CONCRETE",   "🏗️ Concrete Placement"),
-    ("TRAINING",   "🎓 Quality Training & TBT"),
+    ("NCR",        "⚠️ NCR Register"),
+    ("CONCRETE",   "🏗️ Concrete"),
+    ("TRAINING",   "🎓 Training & TBT"),
     ("LESSONS",    "💡 Lessons Learned"),
-    ("MONTHLY",    "📅 Monthly Status Report")
+    ("MONTHLY",    "📅 Monthly Report")
 ]
 if user_is_admin:
-    nav_definitions.append(("ADMIN", "👥 User & Access Audit"))
+    nav_definitions.append(("ADMIN", "👥 User Access"))
 
 nav_cols = st.columns(len(nav_definitions))
 for idx, (k, lbl) in enumerate(nav_definitions):

@@ -78,15 +78,21 @@ div[class*="viewerBadge"],div[class*="Toolbar"]{display:none!important;visibilit
 /* Global buttons */
 [data-testid="stBaseButton-primary"]{
   background:linear-gradient(135deg,#2563EB 0%,#1D4ED8 100%)!important;
-  border:none!important;border-radius:8px!important;font-weight:600!important;
-  font-size:.875rem!important;letter-spacing:.01em!important;
+  border:none!important;border-radius:9px!important;font-weight:700!important;
+  font-size:.82rem!important;letter-spacing:-.01em!important;padding:8px 10px!important;
   box-shadow:0 2px 8px rgba(37,99,235,.28)!important;color:#FFFFFF!important;
+  white-space:nowrap!important;text-overflow:clip!important;overflow:visible!important;
   transition:all .15s ease!important;}
 [data-testid="stBaseButton-primary"]:hover{
   box-shadow:0 4px 14px rgba(37,99,235,.4)!important;transform:translateY(-1px);}
 [data-testid="stBaseButton-secondary"]{
-  border-radius:8px!important;font-weight:500!important;font-size:.875rem!important;
-  border:1.5px solid #CBD5E1!important;background:#FFFFFF!important;color:#334155!important;}
+  border-radius:9px!important;font-weight:600!important;font-size:.82rem!important;
+  letter-spacing:-.01em!important;padding:8px 10px!important;
+  border:1.5px solid #CBD5E1!important;background:#FFFFFF!important;color:#334155!important;
+  white-space:nowrap!important;text-overflow:clip!important;overflow:visible!important;
+  transition:all .15s ease!important;}
+[data-testid="stBaseButton-secondary"]:hover{
+  background:#F8FAFC!important;border-color:#94A3B8!important;color:#0F172A!important;}
 
 /* Navigation Tabs as Real Interactive Buttons */
 .nav-tab-bar{
