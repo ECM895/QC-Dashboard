@@ -229,6 +229,10 @@ def apply_preset_cumulative():
     st.session_state.start_date = min_date
     st.session_state.end_date = max_date
 
+def apply_preset_7d():
+    st.session_state.start_date = max(min_date, max_date - datetime.timedelta(days=7))
+    st.session_state.end_date = max_date
+
 def apply_preset_30d():
     st.session_state.start_date = max(min_date, max_date - datetime.timedelta(days=30))
     st.session_state.end_date = max_date
@@ -282,7 +286,7 @@ st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 
 # ── Filter Toolbar ────────────────────────────────────────────────────────────
 st.markdown("<div style='background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px;padding:14px 18px;margin-bottom:16px;box-shadow:0 2px 6px rgba(15,23,42,.04);'>", unsafe_allow_html=True)
-fc1, fc2, fc3, fc4, fc5, fc6, fc7 = st.columns([1.1, 1.1, 0.9, 0.9, 1.3, 1.3, 1.3])
+fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8 = st.columns([1.1, 1.1, 0.8, 0.8, 0.8, 1.2, 1.2, 1.2])
 with fc1:
     st.date_input("Start Date", key="start_date", min_value=min_date, max_value=max_date)
 with fc2:
@@ -294,8 +298,12 @@ with fc3:
 with fc4:
     st.write("")
     st.write("")
-    st.button("Last 30D", key="btn_30d", on_click=apply_preset_30d, use_container_width=True)
+    st.button("Last 7D", key="btn_7d", on_click=apply_preset_7d, use_container_width=True)
 with fc5:
+    st.write("")
+    st.write("")
+    st.button("Last 30D", key="btn_30d", on_click=apply_preset_30d, use_container_width=True)
+with fc6:
     st.write("")
     st.write("")
     if st.button("📊 Generate PPT", key="btn_gen_ppt", use_container_width=True):
@@ -306,7 +314,7 @@ with fc5:
                 st.success("Slide deck ready!")
             except Exception as e:
                 st.error(f"PPT error: {e}")
-with fc6:
+with fc7:
     st.write("")
     st.write("")
     if st.session_state.ppt_data is not None:
@@ -320,7 +328,7 @@ with fc6:
         )
     else:
         st.button("⬇️ Download PPT", disabled=True, use_container_width=True)
-with fc7:
+with fc8:
     st.write("")
     st.write("")
     if st.button("🔄 Sync Drive", key="btn_sync_gdrive", help="Pull updated logs from shared Google Drive folder", use_container_width=True):
@@ -378,6 +386,10 @@ if st.session_state.current_view == "OVERVIEW":
         ("NCR - Non-Conformance Reports", "NCR", True)
     ]
     
+    today_dt = pd.Timestamp(datetime.date.today())
+    open_ncrs_sub = date_filtered_df[(date_filtered_df['Category'] == 'NCR') & (date_filtered_df['Status'] == 'Open')]
+    overdue_ncr_count = len(open_ncrs_sub[(today_dt - pd.to_datetime(open_ncrs_sub['Date'])).dt.days >= 60]) if len(open_ncrs_sub) > 0 else 0
+
     for i in range(0, len(categories), 2):
         col1, col2 = st.columns(2)
         with col1:
@@ -386,7 +398,7 @@ if st.session_state.current_view == "OVERVIEW":
             total = a + b + c + d
             if is_ncr:
                 rate = f"{(a / total * 100):.1f}%" if total > 0 else "0.0%"
-                render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", "", "", rate, is_alt_color=(i % 4 >= 2), is_ncr=True, cat_id=cat)
+                render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{overdue_ncr_count:,}", "", rate, is_alt_color=(i % 4 >= 2), is_ncr=True, cat_id=cat)
             else:
                 rate = f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
                 render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", rate, is_alt_color=(i % 4 >= 2), is_ncr=False, cat_id=cat)
@@ -398,7 +410,7 @@ if st.session_state.current_view == "OVERVIEW":
                 total = a + b + c + d
                 if is_ncr:
                     rate = f"{(a / total * 100):.1f}%" if total > 0 else "0.0%"
-                    render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", "", "", rate, is_alt_color=((i+1) % 4 >= 2), is_ncr=True, cat_id=cat)
+                    render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{overdue_ncr_count:,}", "", rate, is_alt_color=((i+1) % 4 >= 2), is_ncr=True, cat_id=cat)
                 else:
                     rate = f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
                     render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", rate, is_alt_color=((i+1) % 4 >= 2), is_ncr=False, cat_id=cat)
@@ -496,20 +508,29 @@ elif st.session_state.current_view == "DRILLDOWN":
 
     # Render Interactive Cards with Popup Buttons
     if cat == 'NCR':
-        col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+        today_drill_dt = pd.Timestamp(datetime.date.today())
+        open_ncr_drill = cat_df[cat_df['Status'] == 'Open']
+        overdue_drill_df = open_ncr_drill[(today_drill_dt - pd.to_datetime(open_ncr_drill['Date'])).dt.days >= 60] if len(open_ncr_drill) > 0 else cat_df.iloc[0:0]
+        overdue_drill_cnt = len(overdue_drill_df)
+
+        col_k1, col_k2, col_k3, col_k4, col_k5 = st.columns(5)
         with col_k1:
             st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #2563EB;"><div class="detail-kpi-title">TOTAL NCRS</div><div class="detail-kpi-value" style="color: #2563EB;">{total:,}</div><div class="detail-kpi-sub">All submissions</div></div>', unsafe_allow_html=True)
             if st.button("🔍 View All Total", key="btn_popup_tot", use_container_width=True):
                 show_status_popup(cat, "Total Records", cat_df)
         with col_k2:
-            st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #EF4444;"><div class="detail-kpi-title">OPEN (ACTIVE)</div><div class="detail-kpi-value" style="color: #EF4444;">{d:,}</div><div class="detail-kpi-sub">Requires action</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #EF4444;"><div class="detail-kpi-title">OVERDUE (>60 DAYS)</div><div class="detail-kpi-value" style="color: #EF4444;">{overdue_drill_cnt:,}</div><div class="detail-kpi-sub">Critical pending</div></div>', unsafe_allow_html=True)
+            if st.button("🚨 View Overdue", key="btn_popup_overdue", use_container_width=True):
+                show_status_popup(cat, "Overdue NCRs (>60 Days)", overdue_drill_df)
+        with col_k3:
+            st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #F59E0B;"><div class="detail-kpi-title">OPEN (ACTIVE)</div><div class="detail-kpi-value" style="color: #F59E0B;">{d:,}</div><div class="detail-kpi-sub">Requires action</div></div>', unsafe_allow_html=True)
             if st.button("🔍 View Open NCRs", key="btn_popup_open", use_container_width=True):
                 show_status_popup(cat, "Open Issues", cat_df[cat_df['Status'] == 'Open'])
-        with col_k3:
+        with col_k4:
             st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #10B981;"><div class="detail-kpi-title">CLOSED</div><div class="detail-kpi-value" style="color: #10B981;">{(a+b):,}</div><div class="detail-kpi-sub">Verified & Closed</div></div>', unsafe_allow_html=True)
             if st.button("🔍 View Closed", key="btn_popup_closed", use_container_width=True):
                 show_status_popup(cat, "Closed & Verified", cat_df[cat_df['Status'] == 'Closed'])
-        with col_k4:
+        with col_k5:
             st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #6366F1;"><div class="detail-kpi-title">CLOSURE RATE</div><div class="detail-kpi-value" style="color: #6366F1;">{rate}</div><div class="detail-kpi-sub">Resolution index</div></div>', unsafe_allow_html=True)
             st.button("📊 Closure Index", key="btn_popup_rate", use_container_width=True, disabled=True)
     else:

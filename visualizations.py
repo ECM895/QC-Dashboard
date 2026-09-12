@@ -347,8 +347,12 @@ def render_category_box(title, total_val, val1, val2, val3, val4, rate,
 
     cells = [mc(total_val,"TOTAL")]
     if is_ncr:
-        cells += [mc(val1,"CLOSED","#10B981"), mc(val2,"OPEN","#EF4444")]
-        gc = "repeat(3,1fr)"
+        cells += [mc(val1,"CLOSED","#10B981"), mc(val2,"OPEN","#F59E0B")]
+        if val3:
+            cells += [mc(val3,"OVERDUE (>60d)","#EF4444")]
+            gc = "repeat(4,1fr)"
+        else:
+            gc = "repeat(3,1fr)"
     else:
         cells += [mc(val1,"CODE A","#10B981"), mc(val2,"CODE B","#0EA5E9"),
                   mc(val3,"CODE C","#F59E0B"), mc(val4,"CODE D","#EF4444")]
