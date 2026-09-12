@@ -432,7 +432,7 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
         # Keep latest revision per Document / Reference No
         ncr_submittals = ncr_submittals.drop_duplicates(subset=['Reference No'], keep='last')
 
-    ref_date = datetime.date(2026, 9, 12)
+    ref_date = datetime.date.today()
     reconciled = []
     seen_refs = set()
 
@@ -461,20 +461,14 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             days_open = max(0, (ref_date - date_dt.date()).days)
             
         # Status determination:
-        # If in PPT, check CurrentStatus
+        # Aconex status is the primary official record. If Aconex says Closed, or PPT indicates closed, it is Closed.
         ppt_status = p_data.get('CurrentStatus', '')
         aconex_status = str(r.get('Status', 'Open'))
         
-        if ppt_status:
-            if 'closed' in ppt_status.lower():
-                final_status = 'Closed'
-            else:
-                final_status = 'Open'
+        if aconex_status == 'Closed' or (ppt_status and 'closed' in ppt_status.lower()):
+            final_status = 'Closed'
         else:
-            if any(x in aconex_status.lower() for x in ['closed', 'approved']):
-                final_status = 'Closed'
-            else:
-                final_status = 'Open'
+            final_status = 'Open'
                 
         # Aging category: Overdue if >= 60 days (2 months)
         if final_status == 'Open':
@@ -510,12 +504,12 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             'Origin': 'Consultant (SOA)' if 'SOA-NCR' in doc_no else ('JV Internal (ECM)' if 'ECM-NCR' in doc_no else 'Other')
         })
 
-    # Add any remaining PPT items that weren't in Aconex
+    # Add any remaining PPT items that truly were not in Aconex
     for k, p_data in ppt_ncrs.items():
         doc_raw = p_data.get('DocRaw', k)
-        clean_doc = re.findall(r'[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-NCR-[A-Z0-9]+-\d+', doc_raw)
+        clean_doc = re.findall(r'[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-NCR-[A-Z0-9]+-\d+', doc_raw.replace(' ', ''))
         doc_no = clean_doc[0] if clean_doc else doc_raw
-        if any(doc_no in s for s in seen_refs):
+        if any(k in s for s in seen_refs) or any(doc_no in s for s in seen_refs):
             continue
             
         date_dt = pd.to_datetime(p_data.get('IssueDate'), errors='coerce')
@@ -525,9 +519,9 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             
         ppt_desc = p_data.get('Description', 'Non-conformance recorded')
         zone_val = normalize_zone(ppt_desc, doc_no)
-        ppt_status = p_data.get('Status', 'Open')
-        final_status = 'Closed' if any(x in ppt_status.lower() for x in ['close', 'approv', 'pass']) else 'Open'
-        aging_cat = 'Closed' if final_status == 'Closed' else ('Overdue (>14d)' if days_open > 14 else 'Within SLA (≤14d)')
+        ppt_status = p_data.get('CurrentStatus', p_data.get('Status', 'Open'))
+        final_status = 'Closed' if any(x in str(ppt_status).lower() for x in ['close', 'approv', 'pass']) else 'Open'
+        aging_cat = 'Closed' if final_status == 'Closed' else ('Overdue (> 2 Months)' if days_open >= 60 else 'Active (< 2 Months)')
 
         reconciled.append({
             'Document No': doc_no,
