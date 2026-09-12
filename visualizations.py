@@ -451,9 +451,39 @@ def plot_donut_chart(labels, values, title, colors, height=320):
     fig.update_layout(showlegend=True,margin=dict(t=50,b=20,l=20,r=20))
     return fig
 
-def plot_100p_stacked_bar(df, x_col, y_col, color_col, title, color_map, height=360):
-    fig = px.bar(df,x=x_col,y=y_col,color=color_col,color_discrete_map=color_map,
-                 text=df[y_col].apply(lambda x: f'{x:.0f}%' if x > 6 else ""))
+def plot_100p_stacked_bar(df, x_col, y_col, color_col, title, color_map, height=360, count_col='Count'):
+    plot_df = df.copy()
+    # Check if count column exists to enrich labels and hover
+    if count_col in plot_df.columns:
+        # Calculate total per x category
+        x_totals = plot_df.groupby(x_col, observed=False)[count_col].sum().to_dict()
+        display_map = {
+            val: f"{val}<br><span style='font-size:10px;color:#64748B;font-weight:600;'>Total: {x_totals.get(val, 0):,}</span>"
+            for val in plot_df[x_col].unique()
+        }
+        plot_df[f'{x_col}_Display'] = plot_df[x_col].map(display_map)
+        if isinstance(plot_df[x_col].dtype, pd.CategoricalDtype):
+            new_cats = [display_map[c] for c in plot_df[x_col].cat.categories if c in display_map]
+            plot_df[f'{x_col}_Display'] = pd.Categorical(plot_df[f'{x_col}_Display'], categories=new_cats, ordered=True)
+        # Format text inside segment: Show percentage and count if sufficient space
+        plot_df['BarText'] = plot_df.apply(
+            lambda r: f"{r[y_col]:.0f}%<br><span style='font-size:9px;'>({int(r[count_col]):,})</span>"
+            if r[y_col] > 11 else (f"{r[y_col]:.0f}%" if r[y_col] > 6 else ""),
+            axis=1
+        )
+        fig = px.bar(
+            plot_df, x=f'{x_col}_Display', y=y_col, color=color_col,
+            color_discrete_map=color_map, text='BarText',
+            custom_data=[count_col]
+        )
+        fig.update_traces(
+            hovertemplate="<b>%{x}</b><br>Status: %{fullData.name}<br>Proportion: %{y:.1f}%<br>Count: %{customdata[0]:,} records<extra></extra>"
+        )
+    else:
+        fig = px.bar(
+            plot_df, x=x_col, y=y_col, color=color_col, color_discrete_map=color_map,
+            text=plot_df[y_col].apply(lambda x: f'{x:.0f}%' if x > 6 else "")
+        )
     fig.update_traces(textposition="inside",
                       textfont=dict(size=11,family="Inter",color="#FFFFFF",weight=700),
                       marker=dict(line=dict(color="#FFFFFF",width=1)))
