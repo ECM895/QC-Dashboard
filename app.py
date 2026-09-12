@@ -24,7 +24,7 @@ from auth_manager import (
 
 st.set_page_config(
     page_title="QA/QC Opera House Dashboard | Royal Diriyah Opera House",
-    page_icon="🎭",
+    page_icon="favicon.png" if os.path.exists("favicon.png") else "ecm_logo.png",
     layout="wide",
     initial_sidebar_state="expanded"
 )
