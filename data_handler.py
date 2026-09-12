@@ -217,6 +217,35 @@ def process_uploaded_logs(_uploaded_files=None):
                     return 'Other / Unclassified'
                     
                 df['Root Cause'] = df.apply(extract_root_cause, axis=1)
+
+                # Harmonize NCR statuses with Open NCR Tracker (PPT)
+                # If an NCR is in the Open NCR PPT tracker, it remains Open unless PPT explicitly states 'Closed'
+                try:
+                    ppt_ncrs = {}
+                    for search_dir in ["auto_logs", "logs", ".temp_uploads"]:
+                        if os.path.exists(search_dir):
+                            for fn in os.listdir(search_dir):
+                                if fn.startswith("~$") or fn.startswith("."): continue
+                                if fn.endswith('.pptx') and ('ncr' in fn.lower() or 'open' in fn.lower()):
+                                    try:
+                                        ppt_ncrs = parse_ncr_ppt(os.path.join(search_dir, fn))
+                                        if ppt_ncrs: break
+                                    except:
+                                        pass
+                        if ppt_ncrs: break
+                    
+                    if ppt_ncrs:
+                        for idx, r in df[df['Category'] == 'NCR'].iterrows():
+                            ref = str(r['Reference No']).strip()
+                            match_k = next((k for k in ppt_ncrs if k in ref), None)
+                            if match_k:
+                                p_cur = str(ppt_ncrs[match_k].get('CurrentStatus', '')).strip().lower()
+                                if 'closed' in p_cur:
+                                    df.at[idx, 'Status'] = 'Closed'
+                                else:
+                                    df.at[idx, 'Status'] = 'Open'
+                except Exception as e:
+                    print(f"Error harmonizing NCR status with PPT: {e}")
         else:
             empty_df, mock_cal = _generate_empty_data()
             df = empty_df
@@ -461,18 +490,24 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             days_open = max(0, (ref_date - date_dt.date()).days)
             
         # Status determination:
-        # Aconex status is the primary official record. If Aconex says Closed, or PPT indicates closed, it is Closed.
+        # If tracked in the Open NCR PPT, the PPT is the live tracker: it is Open unless PPT explicitly says 'Closed'
+        # If NOT in PPT, it follows the submittal register status.
         ppt_status = p_data.get('CurrentStatus', '')
         aconex_status = str(r.get('Status', 'Open'))
         
-        if aconex_status == 'Closed' or (ppt_status and 'closed' in ppt_status.lower()):
-            final_status = 'Closed'
+        if p_data:
+            final_status = 'Closed' if 'closed' in ppt_status.lower() else 'Open'
         else:
-            final_status = 'Open'
+            final_status = aconex_status
                 
-        # Aging category: Overdue if >= 60 days (2 months)
+        # Aging category:
+        # If in PPT, follow PPT's DaysPassed / [OVERDUE] indicator if available; else evaluate days_open >= 60
         if final_status == 'Open':
-            aging_cat = 'Overdue (> 2 Months)' if days_open >= 60 else 'Active (< 2 Months)'
+            days_passed_str = str(p_data.get('DaysPassed', '')).lower()
+            if '[overdue]' in days_passed_str or days_open >= 60:
+                aging_cat = 'Overdue (> 2 Months)'
+            else:
+                aging_cat = 'Active (< 2 Months)'
         else:
             aging_cat = 'Closed'
             

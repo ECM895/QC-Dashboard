@@ -405,9 +405,8 @@ if st.session_state.current_view == "OVERVIEW":
         ("NCR - Non-Conformance Reports", "NCR", True)
     ]
     
-    today_dt = pd.Timestamp(datetime.date.today())
-    open_ncrs_sub = date_filtered_df[(date_filtered_df['Category'] == 'NCR') & (date_filtered_df['Status'] == 'Open')]
-    overdue_ncr_count = len(open_ncrs_sub[(today_dt - pd.to_datetime(open_ncrs_sub['Date'])).dt.days >= 60]) if len(open_ncrs_sub) > 0 else 0
+    ncr_master_view = get_ncr_master_data(date_filtered_df)
+    overdue_ncr_count = len(ncr_master_view[ncr_master_view['Aging Category'] == 'Overdue (> 2 Months)'])
 
     for i in range(0, len(categories), 2):
         col1, col2 = st.columns(2)
