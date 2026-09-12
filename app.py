@@ -26,7 +26,7 @@ st.set_page_config(
     page_title="QA/QC Opera House Dashboard | Royal Diriyah Opera House",
     page_icon="favicon.png" if os.path.exists("favicon.png") else "ecm_logo.png",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 inject_custom_css()
@@ -56,26 +56,29 @@ if "user_info" not in st.session_state:
     st.session_state.user_info = None
 
 if not st.session_state.authenticated:
-    _, center_col, _ = st.columns([1, 1.3, 1])
+    _, center_col, _ = st.columns([1.2, 1.2, 1.2])
     with center_col:
-        st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
         if os.path.exists("ecm_logo.png"):
-            st.image("ecm_logo.png", use_container_width=True)
+            # ECM Logo reduced 50% in size
+            col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
+            with col_l2:
+                st.image("ecm_logo.png", use_container_width=True)
         st.markdown("""
-            <div style='text-align: center; margin-bottom: 24px;'>
-                <div style='font-size: 1.4rem; font-weight: 800; color: #0F172A; letter-spacing: -0.02em;'>
+            <div style='text-align: center; margin-bottom: 20px; margin-top: 6px;'>
+                <div style='font-size: 1.3rem; font-weight: 800; color: #0F172A; letter-spacing: -0.02em;'>
                     Royal Diriyah Opera House
                 </div>
-                <div style='font-size: 0.88rem; font-weight: 600; color: #64748B;'>
+                <div style='font-size: 0.82rem; font-weight: 600; color: #64748B;'>
                     QA/QC Executive Management Platform &bull; ECM-JV
                 </div>
             </div>
         """, unsafe_allow_html=True)
 
         with st.container(border=True):
-            st.markdown("<div style='font-size: 1.05rem; font-weight: 700; color: #1E293B; margin-bottom: 12px;'>🔒 Sign In to Access Dashboard</div>", unsafe_allow_html=True)
-            login_username = st.text_input("Username or Email", placeholder="e.g. uzair087 or name@ecm-jv.com", key="input_login_user")
-            login_password = st.text_input("Password", type="password", placeholder="Enter your password", key="input_login_pass")
+            st.markdown("<div style='font-size: 1.0rem; font-weight: 700; color: #1E293B; margin-bottom: 12px;'>🔒 Sign In to Access Dashboard</div>", unsafe_allow_html=True)
+            login_username = st.text_input("Username or Email", key="input_login_user")
+            login_password = st.text_input("Password", type="password", key="input_login_pass")
             
             if st.button("Sign In ➔", type="primary", use_container_width=True):
                 if not login_username or not login_password:
@@ -89,11 +92,17 @@ if not st.session_state.authenticated:
                         st.success(f"Welcome back, {user_dict['username']}!")
                         st.rerun()
                     else:
-                        st.error("Invalid username/email or password. Please contact QA/QC administration.")
+                        st.error("Invalid credentials. Please contact QA/QC administration.")
+
+            st.markdown("""
+                <div style='text-align: center; font-size: 0.78rem; color: #64748B; margin-top: 14px; padding-top: 10px; border-top: 1px solid #E2E8F0;'>
+                    Forgot your password? Please contact your <strong>QA/QC Administrator</strong> for password recovery.
+                </div>
+            """, unsafe_allow_html=True)
 
         st.markdown("""
-            <div style='text-align: center; font-size: 0.78rem; color: #94A3B8; margin-top: 18px;'>
-                Restricted Project Access &bull; All sessions are monitored & logged for quality assurance.
+            <div style='text-align: center; font-size: 0.74rem; color: #94A3B8; margin-top: 16px;'>
+                Restricted Project Access &bull; All sessions are monitored & logged.
             </div>
         """, unsafe_allow_html=True)
     st.stop()
@@ -148,92 +157,18 @@ def show_status_popup(cat, status_name, filtered_records):
     
     st.dataframe(filtered_records, use_container_width=True, hide_index=True)
 
-# Sidebar
-with st.sidebar:
-    # ECM JV Logo in Sidebar
-    if os.path.exists("ecm_logo.png"):
-        st.image("ecm_logo.png", use_container_width=True)
-        st.markdown("<div style='text-align: center; font-size: 0.72rem; font-weight: 700; color: #64748B; margin-top: -8px; margin-bottom: 14px;'>EL SEIF - CSCEC - MIDMAC JV</div>", unsafe_allow_html=True)
-
-    # User Profile & Logout section
-    cur_user = st.session_state.get("user_info", {})
-    user_name = cur_user.get("username", "User")
-    user_role = cur_user.get("role", "viewer").upper()
-    user_email = cur_user.get("email", "")
-    badge_color = "#2563EB" if user_role == "ADMIN" else "#64748B"
-
-    st.markdown(f"""
-        <div style='background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;'>
-            <div style='display: flex; justify-content: space-between; align-items: center;'>
-                <span style='font-size: 0.85rem; font-weight: 700; color: #0F172A;'>👤 {user_name}</span>
-                <span style='background: {badge_color}; color: #FFFFFF; font-size: 0.68rem; font-weight: 800; padding: 2px 7px; border-radius: 6px;'>{user_role}</span>
-            </div>
-            <div style='font-size: 0.75rem; color: #64748B; margin-top: 3px; word-break: break-all;'>{user_email}</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    if st.button("🔒 Sign Out", key="btn_signout", use_container_width=True):
-        st.session_state.authenticated = False
-        st.session_state.user_info = None
-        st.rerun()
-
-    st.markdown("<div style='font-size:0.75rem;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:0.06em;margin-top:12px;margin-bottom:10px;'>🎛️ Navigation</div>", unsafe_allow_html=True)
-    nav_items = [
-        ("OVERVIEW", "📊 Executive Overview"),
-        ("DRILLDOWN", "🔍 Category Wise"),
-        ("NCR", "⚠️ Client NCR Register"),
-        ("CONCRETE", "🏗️ Concrete Placement"),
-        ("TRAINING", "🎓 Quality Training & TBT"),
-        ("LESSONS", "💡 Lessons Learned"),
-        ("MONTHLY", "📅 Monthly Status Report")
-    ]
-    if user_role == "ADMIN":
-        nav_items.append(("ADMIN", "👥 User & Access Audit"))
-
-    for key, label in nav_items:
-        b_type = "primary" if st.session_state.current_view == key else "secondary"
-        if st.button(label, key=f"side_nav_{key}", use_container_width=True, type=b_type):
-            st.session_state.current_view = key
-            st.session_state.page_num = 1
-            st.rerun()
-
-    st.markdown("---")
-    st.markdown("<div style='font-size:0.75rem;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:0.06em;margin-top:16px;margin-bottom:6px;'>📁 Master Log Sync</div>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size: 0.8rem; color: #64748B; margin-bottom: 8px;'>Place raw Aconex logs in <code>auto_logs/</code> or upload below.</div>", unsafe_allow_html=True)
-
-    if st.button("🔄 Sync Logs from Folder", use_container_width=True, type="primary"):
-        st.cache_data.clear()
-        st.success("Synchronized logs from folder!")
-        st.rerun()
-
-    st.markdown("<div style='font-size: 0.8rem; color: #64748B; margin-top: 14px; margin-bottom: 4px;'>Upload Aconex export files:</div>", unsafe_allow_html=True)
-    uploaded_files = st.file_uploader("Upload Register", accept_multiple_files=True, type=['xlsx', 'xls'], label_visibility="collapsed")
-    if uploaded_files:
-        new_files_saved = 0
-        for uf in uploaded_files:
-            file_sig = f"{uf.name}_{uf.size}"
-            if file_sig not in st.session_state.saved_upload_names:
-                target_path = os.path.join(AUTO_DIR, uf.name)
-                with open(target_path, "wb") as f_out:
-                    f_out.write(uf.getbuffer())
-                st.session_state.saved_upload_names.add(file_sig)
-                new_files_saved += 1
-        if new_files_saved > 0:
-            st.cache_data.clear()
-            st.success(f"Saved {new_files_saved} new file(s) to auto_logs/!")
-
-    # Collect all Excel files across auto_logs, logs, and .temp_uploads
-    file_metadata = []
-    scanned_files = []
-    for d in [AUTO_DIR, LOGS_DIR, UPLOAD_DIR]:
-        if os.path.exists(d):
-            for fn in os.listdir(d):
-                if fn.startswith("~$") or fn.startswith("."): continue
-                if fn.endswith('.xlsx') or fn.endswith('.xls'):
-                    fp = os.path.join(d, fn)
-                    if os.path.isfile(fp) and fp not in scanned_files:
-                        scanned_files.append(fp)
-                        file_metadata.append((fp, fn, os.path.getmtime(fp)))
+# Collect all Excel files across auto_logs, logs, and .temp_uploads
+file_metadata = []
+scanned_files = []
+for d in [AUTO_DIR, LOGS_DIR, UPLOAD_DIR]:
+    if os.path.exists(d):
+        for fn in os.listdir(d):
+            if fn.startswith("~$") or fn.startswith("."): continue
+            if fn.endswith('.xlsx') or fn.endswith('.xls'):
+                fp = os.path.join(d, fn)
+                if os.path.isfile(fp) and fp not in scanned_files:
+                    scanned_files.append(fp)
+                    file_metadata.append((fp, fn, os.path.getmtime(fp)))
 
 @st.cache_data(show_spinner=False)
 def load_and_cache_data(metadata):
@@ -303,7 +238,8 @@ nav_definitions = [
 if user_is_admin:
     nav_definitions.append(("ADMIN", "👥 User Access"))
 
-nav_cols = st.columns(len(nav_definitions))
+# Navigation buttons + Sign Out button
+nav_cols = st.columns(len(nav_definitions) + 1)
 for idx, (k, lbl) in enumerate(nav_definitions):
     with nav_cols[idx]:
         is_cur = (st.session_state.current_view == k)
@@ -312,6 +248,12 @@ for idx, (k, lbl) in enumerate(nav_definitions):
             st.session_state.current_view = k
             st.session_state.page_num = 1
             st.rerun()
+
+with nav_cols[-1]:
+    if st.button("🔒 Sign Out", key="top_nav_signout", type="secondary", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.user_info = None
+        st.rerun()
 
 st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 

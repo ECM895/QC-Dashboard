@@ -41,33 +41,13 @@ footer{visibility:hidden!important;display:none!important;}
 header[data-testid="stHeader"]{background:transparent!important;z-index:99999!important;}
 [data-testid="stStatusWidget"],.stDeployButton{display:none!important;visibility:hidden!important;}
 
-/* Sidebar */
-[data-testid="stSidebar"]{background:#0F172A!important;border-right:1px solid rgba(255,255,255,.06)!important;}
-[data-testid="stSidebar"] *{color:#CBD5E1!important;}
-[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]{
-  background:linear-gradient(135deg,#2563EB 0%,#1D4ED8 100%)!important;
-  border:none!important;color:#FFFFFF!important;border-radius:8px!important;font-weight:600!important;}
-[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"]{
-  background:rgba(255,255,255,.06)!important;border:1px solid rgba(255,255,255,.1)!important;
-  color:#94A3B8!important;border-radius:8px!important;font-weight:500!important;}
-[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"]:hover{
-  background:rgba(255,255,255,.12)!important;color:#F1F5F9!important;}
-
-/* Sidebar toggle button (Always visible when collapsed) */
-[data-testid="collapsedControl"]{
-  display:flex!important;visibility:visible!important;opacity:1!important;
-  position:fixed!important;top:10px!important;left:10px!important;
-  z-index:999999!important;cursor:pointer!important;
-  width:42px!important;height:42px!important;
-  background:#0F172A!important;border:1.5px solid #2563EB!important;
-  border-radius:10px!important;box-shadow:0 4px 14px rgba(15,23,42,0.4)!important;
-}
-[data-testid="collapsedControl"]:hover{
-  background:#1D4ED8!important;border-color:#60A5FA!important;
-}
-[data-testid="collapsedControl"] svg{
-  color:#FFFFFF!important;stroke:#FFFFFF!important;fill:#FFFFFF!important;
-  width:22px!important;height:22px!important;display:block!important;
+/* Completely Remove Sidebar and Toggle Button */
+[data-testid="stSidebar"], section[data-testid="stSidebar"], [data-testid="collapsedControl"]{
+  display: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
 }
 
 /* Global buttons */
