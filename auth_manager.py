@@ -40,6 +40,17 @@ def init_auth_db():
             access_month TEXT NOT NULL
         )
     """)
+
+    # 3. IP persistent sessions table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ip_sessions (
+            ip_address TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            role TEXT NOT NULL,
+            email TEXT,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     conn.commit()
     
@@ -53,6 +64,75 @@ def init_auth_db():
         """, ('uzair087', 'uzair.ahmad@ecm-jv.com', _hash_password('uza0809'), 'admin', 1))
         conn.commit()
         
+    conn.close()
+
+def get_client_ip():
+    """Extracts client IP address reliably from Streamlit context or HTTP headers."""
+    try:
+        # Check Streamlit 1.35+ st.context.ip_address
+        if hasattr(st, "context") and hasattr(st.context, "ip_address") and st.context.ip_address:
+            return str(st.context.ip_address).strip()
+        # Check headers for X-Forwarded-For or remote IP
+        if hasattr(st, "context") and hasattr(st.context, "headers") and st.context.headers:
+            headers = st.context.headers
+            for key in ["x-forwarded-for", "X-Forwarded-For", "x-real-ip", "X-Real-IP"]:
+                if key in headers and headers[key]:
+                    return str(headers[key]).split(",")[0].strip()
+    except Exception:
+        pass
+    return "127.0.0.1"
+
+def save_ip_session(ip_address: str, user_dict: dict):
+    """Saves or updates persistent session for client IP."""
+    if not ip_address or not user_dict:
+        return
+    init_auth_db()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO ip_sessions (ip_address, username, role, email, last_seen)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(ip_address) DO UPDATE SET
+            username=excluded.username,
+            role=excluded.role,
+            email=excluded.email,
+            last_seen=CURRENT_TIMESTAMP
+    """, (ip_address.strip(), user_dict.get("username", ""), user_dict.get("role", "viewer"), user_dict.get("email", "")))
+    conn.commit()
+    conn.close()
+
+def get_user_by_ip(ip_address: str):
+    """Retrieves active user session for client IP if recognized."""
+    if not ip_address:
+        return False, None
+    init_auth_db()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT s.username, s.role, s.email 
+        FROM ip_sessions s
+        JOIN users u ON LOWER(u.username) = LOWER(s.username)
+        WHERE s.ip_address = ? AND u.is_active = 1
+    """, (ip_address.strip(),))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return True, {
+            "username": row[0],
+            "role": row[1],
+            "email": row[2]
+        }
+    return False, None
+
+def clear_ip_session(ip_address: str):
+    """Clears saved session for client IP on sign out."""
+    if not ip_address:
+        return
+    init_auth_db()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM ip_sessions WHERE ip_address = ?", (ip_address.strip(),))
+    conn.commit()
     conn.close()
 
 def authenticate_user(username_or_email: str, password: str):

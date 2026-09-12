@@ -20,7 +20,8 @@ from visualizations import (
 from auth_manager import (
     authenticate_user, log_user_access, add_user, 
     delete_user, get_all_users_df, get_access_stats,
-    generate_remember_token, verify_remember_token
+    generate_remember_token, verify_remember_token,
+    get_client_ip, save_ip_session, get_user_by_ip, clear_ip_session
 )
 
 st.set_page_config(
@@ -41,23 +42,38 @@ is_local_mac = (
     "darwin" in os.uname().sysname.lower()
 )
 
-# Check persistent remember token from URL
+# Get current client IP
+client_ip = get_client_ip()
+
+# 1. Check persistent remember token from URL
 token_param = st.query_params.get("auth_token", None)
 if token_param and "authenticated" not in st.session_state:
     is_valid, token_user = verify_remember_token(token_param)
     if is_valid:
         st.session_state.authenticated = True
         st.session_state.user_info = token_user
+        save_ip_session(client_ip, token_user)
 
+# 2. Check saved IP session (auto-login for recognized client IP)
+if "authenticated" not in st.session_state or not st.session_state.authenticated:
+    has_ip_sess, ip_user = get_user_by_ip(client_ip)
+    if has_ip_sess and ip_user:
+        st.session_state.authenticated = True
+        st.session_state.user_info = ip_user
+        # Maintain remember token in URL so both bookmark & IP persist
+        if "auth_token" not in st.query_params:
+            st.query_params["auth_token"] = generate_remember_token(ip_user["username"])
+
+# 3. Fallback for local Mac developer machine
 if "authenticated" not in st.session_state:
     if is_local_mac:
-        # Auto-login as Admin on local machine without password prompt
         st.session_state.authenticated = True
         st.session_state.user_info = {
             "username": "uzair087",
             "email": "uzair.ahmad@ecm-jv.com",
             "role": "admin"
         }
+        save_ip_session(client_ip, st.session_state.user_info)
     else:
         st.session_state.authenticated = False
 
@@ -99,6 +115,8 @@ if not st.session_state.authenticated:
                         st.session_state.authenticated = True
                         st.session_state.user_info = user_dict
                         log_user_access(user_dict["username"], user_dict.get("email", ""))
+                        # Always persist session for this IP and browser
+                        save_ip_session(client_ip, user_dict)
                         if remember_me:
                             t = generate_remember_token(user_dict["username"])
                             st.query_params["auth_token"] = t
@@ -276,6 +294,7 @@ with nav_cols[-1]:
     if st.button("🔒 Sign Out", key="top_nav_signout", type="secondary", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user_info = None
+        clear_ip_session(client_ip)
         if "auth_token" in st.query_params:
             del st.query_params["auth_token"]
         st.rerun()
