@@ -81,6 +81,36 @@ def authenticate_user(username_or_email: str, password: str):
         return True, user_info
     return False, None
 
+def generate_remember_token(username: str) -> str:
+    """Generates a verifiable persistent token for the Remember Me feature."""
+    secret_salt = "ecm_remember_me_token_salt_2026"
+    sig = hashlib.sha256(f"{username}:{secret_salt}".encode('utf-8')).hexdigest()
+    return f"{username}_{sig[:16]}"
+
+def verify_remember_token(token: str):
+    """Verifies a remember me token and returns (bool, user_dict)."""
+    if not token or "_" not in token:
+        return False, None
+    parts = token.split("_")
+    if len(parts) != 2:
+        return False, None
+    username, sig = parts
+    expected_token = generate_remember_token(username)
+    if token == expected_token:
+        init_auth_db()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT username, email, role, is_active FROM users WHERE LOWER(username) = LOWER(?) AND is_active = 1", (username.strip(),))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return True, {
+                "username": row[0],
+                "email": row[1],
+                "role": row[2]
+            }
+    return False, None
+
 def log_user_access(username: str, email: str = ""):
     """Logs a successful access event with date and month grouping."""
     init_auth_db()

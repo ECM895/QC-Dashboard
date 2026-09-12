@@ -19,7 +19,8 @@ from visualizations import (
 
 from auth_manager import (
     authenticate_user, log_user_access, add_user, 
-    delete_user, get_all_users_df, get_access_stats
+    delete_user, get_all_users_df, get_access_stats,
+    generate_remember_token, verify_remember_token
 )
 
 st.set_page_config(
@@ -39,6 +40,14 @@ is_local_mac = (
     "mac" in os.uname().sysname.lower() or
     "darwin" in os.uname().sysname.lower()
 )
+
+# Check persistent remember token from URL
+token_param = st.query_params.get("auth_token", None)
+if token_param and "authenticated" not in st.session_state:
+    is_valid, token_user = verify_remember_token(token_param)
+    if is_valid:
+        st.session_state.authenticated = True
+        st.session_state.user_info = token_user
 
 if "authenticated" not in st.session_state:
     if is_local_mac:
@@ -79,6 +88,7 @@ if not st.session_state.authenticated:
             st.markdown("<div style='font-size: 1.0rem; font-weight: 700; color: #1E293B; margin-bottom: 12px;'>🔒 Sign In to Access Dashboard</div>", unsafe_allow_html=True)
             login_username = st.text_input("Username or Email", key="input_login_user")
             login_password = st.text_input("Password", type="password", key="input_login_pass")
+            remember_me = st.checkbox("Remember me on this browser", value=True, key="remember_me_check")
             
             if st.button("Sign In ➔", type="primary", use_container_width=True):
                 if not login_username or not login_password:
@@ -89,6 +99,9 @@ if not st.session_state.authenticated:
                         st.session_state.authenticated = True
                         st.session_state.user_info = user_dict
                         log_user_access(user_dict["username"], user_dict.get("email", ""))
+                        if remember_me:
+                            t = generate_remember_token(user_dict["username"])
+                            st.query_params["auth_token"] = t
                         st.success(f"Welcome back, {user_dict['username']}!")
                         st.rerun()
                     else:
@@ -115,7 +128,8 @@ if cat_param:
     elif cat_param in ["WIR", "MIR", "MAR", "MST", "ITP", "SHD"]:
         st.session_state.current_view = "DRILLDOWN"
         st.session_state.selected_category = cat_param
-    st.query_params.clear()
+    if "category" in st.query_params:
+        del st.query_params["category"]
 
 if 'current_view' not in st.session_state:
     st.session_state.current_view = "OVERVIEW"
@@ -188,8 +202,8 @@ def load_and_cache_data(metadata):
         _files.append(MockFile(path, name))
     return process_uploaded_logs(_files)
 
-with st.spinner("Processing Aconex master registers..."):
-    df, calibration_data, concrete_df, is_mock = load_and_cache_data(tuple(file_metadata))
+# Load data silently in background without blocking screen spinner
+df, calibration_data, concrete_df, is_mock = load_and_cache_data(tuple(file_metadata))
 
 df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
 valid_dates = df['Date'].dropna().copy()
@@ -233,15 +247,15 @@ render_hero_header("Royal Diriyah Opera House", "DII-Jasara", date_range_str)
 user_is_admin = (st.session_state.get("user_info", {}).get("role") == "admin")
 nav_definitions = [
     ("OVERVIEW",   "📊 Overview"),
-    ("DRILLDOWN",  "🔍 Category Wise"),
-    ("NCR",        "⚠️ NCR Register"),
+    ("DRILLDOWN",  "🔍 Categories"),
+    ("NCR",        "⚠️ NCRs"),
     ("CONCRETE",   "🏗️ Concrete"),
-    ("TRAINING",   "🎓 Training & TBT"),
-    ("LESSONS",    "💡 Lessons Learned"),
-    ("MONTHLY",    "📅 Monthly Report")
+    ("TRAINING",   "🎓 Training"),
+    ("LESSONS",    "💡 Lessons"),
+    ("MONTHLY",    "📅 Reports")
 ]
 if user_is_admin:
-    nav_definitions.append(("ADMIN", "👥 User Access"))
+    nav_definitions.append(("ADMIN", "👥 Users"))
 
 # Navigation buttons + Sign Out button
 nav_cols = st.columns(len(nav_definitions) + 1)
@@ -258,6 +272,8 @@ with nav_cols[-1]:
     if st.button("🔒 Sign Out", key="top_nav_signout", type="secondary", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user_info = None
+        if "auth_token" in st.query_params:
+            del st.query_params["auth_token"]
         st.rerun()
 
 st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
@@ -374,15 +390,6 @@ if st.session_state.current_view == "OVERVIEW":
             else:
                 rate = f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
                 render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", rate, is_alt_color=(i % 4 >= 2), is_ncr=False, cat_id=cat)
-            
-            if st.button(f"🔍 Open {cat} Analysis & Register ➔", key=f"btn_nav_cat_{cat}", use_container_width=True):
-                if cat == "NCR":
-                    st.session_state.current_view = "NCR"
-                else:
-                    st.session_state.current_view = "DRILLDOWN"
-                    st.session_state.selected_category = cat
-                st.session_state.page_num = 1
-                st.rerun()
 
         with col2:
             if i + 1 < len(categories):
@@ -395,15 +402,6 @@ if st.session_state.current_view == "OVERVIEW":
                 else:
                     rate = f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
                     render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", rate, is_alt_color=((i+1) % 4 >= 2), is_ncr=False, cat_id=cat)
-
-                if st.button(f"🔍 Open {cat} Analysis & Register ➔", key=f"btn_nav_cat_{cat}", use_container_width=True):
-                    if cat == "NCR":
-                        st.session_state.current_view = "NCR"
-                    else:
-                        st.session_state.current_view = "DRILLDOWN"
-                        st.session_state.selected_category = cat
-                    st.session_state.page_num = 1
-                    st.rerun()
 
     st.markdown("<hr>", unsafe_allow_html=True)
     section_title("📈 Performance Analytics & Proportional Status Distribution")

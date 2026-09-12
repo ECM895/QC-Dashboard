@@ -50,24 +50,60 @@ header[data-testid="stHeader"]{background:transparent!important;z-index:99999!im
   pointer-events: none !important;
 }
 
+/* Input styling with high contrast and dark legible text */
+[data-testid="stTextInput"] input, [data-baseweb="input"] input {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+  border: 1.5px solid #94A3B8 !important;
+  border-radius: 8px !important;
+  font-size: 0.92rem !important;
+  font-weight: 500 !important;
+  padding: 10px 12px !important;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.06) !important;
+}
+[data-testid="stTextInput"] input:focus, [data-baseweb="input"] input:focus {
+  border-color: #2563EB !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.2) !important;
+  outline: none !important;
+}
+[data-testid="stTextInput"] label, [data-testid="stWidgetLabel"] label {
+  color: #1E293B !important;
+  font-weight: 700 !important;
+  font-size: 0.86rem !important;
+}
+[data-testid="stCheckbox"] label {
+  color: #334155 !important;
+  font-weight: 600 !important;
+  font-size: 0.84rem !important;
+}
+
 /* Global buttons */
 [data-testid="stBaseButton-primary"]{
   background:linear-gradient(135deg,#2563EB 0%,#1D4ED8 100%)!important;
-  border:none!important;border-radius:9px!important;font-weight:700!important;
-  font-size:.82rem!important;letter-spacing:-.01em!important;padding:8px 10px!important;
-  box-shadow:0 2px 8px rgba(37,99,235,.28)!important;color:#FFFFFF!important;
+  border:none!important;border-radius:8px!important;font-weight:700!important;
+  font-size:.73rem!important;letter-spacing:-.01em!important;padding:6px 6px!important;
+  box-shadow:0 2px 6px rgba(37,99,235,.25)!important;color:#FFFFFF!important;
   white-space:nowrap!important;text-overflow:clip!important;overflow:visible!important;
   transition:all .15s ease!important;}
 [data-testid="stBaseButton-primary"]:hover{
-  box-shadow:0 4px 14px rgba(37,99,235,.4)!important;transform:translateY(-1px);}
+  box-shadow:0 4px 12px rgba(37,99,235,.35)!important;transform:translateY(-1px);}
 [data-testid="stBaseButton-secondary"]{
-  border-radius:9px!important;font-weight:600!important;font-size:.82rem!important;
-  letter-spacing:-.01em!important;padding:8px 10px!important;
+  border-radius:8px!important;font-weight:600!important;font-size:.73rem!important;
+  letter-spacing:-.01em!important;padding:6px 6px!important;
   border:1.5px solid #CBD5E1!important;background:#FFFFFF!important;color:#334155!important;
   white-space:nowrap!important;text-overflow:clip!important;overflow:visible!important;
   transition:all .15s ease!important;}
 [data-testid="stBaseButton-secondary"]:hover{
   background:#F8FAFC!important;border-color:#94A3B8!important;color:#0F172A!important;}
+
+/* Category Bento Box Button Wrapper */
+div[data-testid="stColumn"] > div > div > button.bento-trigger-btn {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  width: 100% !important;
+  box-shadow: none !important;
+}
 
 /* Navigation Tabs as Real Interactive Buttons */
 .nav-tab-bar{
@@ -75,9 +111,9 @@ header[data-testid="stHeader"]{background:transparent!important;z-index:99999!im
   padding:6px;margin-bottom:16px;box-shadow:0 2px 6px rgba(15,23,42,.04);
 }
 .nav-tab{
-  flex:1;text-align:center;padding:10px 14px;border-radius:8px;font-size:0.84rem;
+  flex:1;text-align:center;padding:8px 10px;border-radius:8px;font-size:0.75rem;
   font-weight:600;color:#475569!important;text-decoration:none!important;
-  display:flex;align-items:center;justify-content:center;gap:6px;
+  display:flex;align-items:center;justify-content:center;gap:4px;
   background:#F8FAFC;border:1px solid #E2E8F0;
   box-shadow:0 1px 2px rgba(0,0,0,0.04);
   transition:all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
@@ -319,12 +355,17 @@ def render_category_box(title, total_val, val1, val2, val3, val4, rate,
         gc = "repeat(5,1fr)"
 
     body = "".join(cells)
+    href = f"?category={cat_id}"
     html = (
-        f'<div class="bento-card">' +
+        f'<a href="{href}" target="_self" style="text-decoration:none;color:inherit;display:block;">' +
+        f'<div class="bento-card" style="cursor:pointer;">' +
         f'  <div class="bento-header">' +
         f'    <div class="bento-title-group">' +
         f'      <div class="bento-icon-badge">{icon}</div>' +
-        f'      <div class="bento-title">{title}</div>' +
+        f'      <div>' +
+        f'        <div class="bento-title">{title}</div>' +
+        f'        <div style="font-size:0.68rem;color:#3B82F6;font-weight:600;margin-top:1px;">Click anywhere on this card to open {cat_id} analysis ➔</div>' +
+        f'      </div>' +
         f'    </div>' +
         f'    <div class="bento-rate-badge" style="background:{bb};color:{bc};border:1px solid {bbd};">' +
         f'      {rl}: {rate}</div>' +
@@ -333,9 +374,11 @@ def render_category_box(title, total_val, val1, val2, val3, val4, rate,
         f'  <div class="bento-progress-container">' +
         f'    <div class="bento-progress-track">' +
         f'      <div class="bento-progress-fill" style="width:{min(rate_num,100)}%;background:{pc};"></div>' +
-        f'    </div></div></div>'
+        f'    </div></div></div>' +
+        f'</a>'
     )
     st.markdown(html, unsafe_allow_html=True)
+    return html
 
 def section_title(text):
     st.markdown(
