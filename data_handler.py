@@ -133,26 +133,30 @@ def process_uploaded_logs(_uploaded_files=None):
                         elif detected_category: temp_df['Category'] = detected_category
                         else: temp_df['Category'] = 'UNKNOWN'
                     
-                    # Map Review Status to Exact Aconex Statuses
-                    if 'Review Status' in temp_df.columns:
-                        def map_status(row):
-                            s = str(row['Review Status']).lower() if pd.notna(row['Review Status']) else ''
-                            cat = row.get('Category', '')
+                    # Map Status / Review Status to Exact Aconex Statuses
+                    def map_status(row):
+                        # For NCRs, check both 'Status' and 'Review Status'
+                        raw_status = str(row.get('Status', '')).lower() if pd.notna(row.get('Status')) else ''
+                        raw_review = str(row.get('Review Status', '')).lower() if pd.notna(row.get('Review Status')) else ''
+                        combined_s = f"{raw_status} {raw_review}".strip()
+                        cat = row.get('Category', '')
+                        
+                        if cat == 'NCR':
+                            if any(x in combined_s for x in ['approved', 'closed', 'close', 'approve', 'pass']):
+                                return 'Closed'
+                            return 'Open'
+                        else:
+                            s = raw_review if raw_review and raw_review != 'nan' else raw_status
+                            if not s or s == 'nan': return 'IGNORE'
+                            if 'approved with comments' in s: return 'B-Approved with Comments'
+                            if 'approved' in s and 'comments' not in s: return 'A-Approved'
+                            if 'revise' in s or 'resubmit' in s: return 'C-Revise and Resubmit'
+                            if 'reject' in s: return 'D-Rejected'
+                            return 'IGNORE'
                             
-                            if cat == 'NCR':
-                                if any(x in s for x in ['close', 'approve']): return 'Closed'
-                                return 'Open'
-                            else:
-                                if not s or s == 'nan': return 'IGNORE'
-                                if 'approved with comments' in s: return 'B-Approved with Comments'
-                                if 'approved' in s and 'comments' not in s: return 'A-Approved'
-                                if 'revise' in s or 'resubmit' in s: return 'C-Revise and Resubmit'
-                                if 'reject' in s: return 'D-Rejected'
-                                return 'IGNORE'
-                                
-                        temp_df['Status'] = temp_df.apply(map_status, axis=1)
-                        # Filter out IGNORed statuses
-                        temp_df = temp_df[temp_df['Status'] != 'IGNORE']
+                    temp_df['Status'] = temp_df.apply(map_status, axis=1)
+                    # Filter out IGNORed statuses
+                    temp_df = temp_df[temp_df['Status'] != 'IGNORE']
                         
                     temp_df['Contractor'] = 'Main Contractor' # Default for Aconex
                     
@@ -521,6 +525,9 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             
         ppt_desc = p_data.get('Description', 'Non-conformance recorded')
         zone_val = normalize_zone(ppt_desc, doc_no)
+        ppt_status = p_data.get('Status', 'Open')
+        final_status = 'Closed' if any(x in ppt_status.lower() for x in ['close', 'approv', 'pass']) else 'Open'
+        aging_cat = 'Closed' if final_status == 'Closed' else ('Overdue (>14d)' if days_open > 14 else 'Within SLA (≤14d)')
 
         reconciled.append({
             'Document No': doc_no,
