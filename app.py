@@ -53,6 +53,8 @@ if token_param and "authenticated" not in st.session_state:
         st.session_state.authenticated = True
         st.session_state.user_info = token_user
         save_ip_session(client_ip, token_user)
+    # Clean the token from the visible browser URL bar immediately for a clean URL
+    del st.query_params["auth_token"]
 
 # 2. Check saved IP session (auto-login for recognized client IP)
 if "authenticated" not in st.session_state or not st.session_state.authenticated:
@@ -60,9 +62,6 @@ if "authenticated" not in st.session_state or not st.session_state.authenticated
     if has_ip_sess and ip_user:
         st.session_state.authenticated = True
         st.session_state.user_info = ip_user
-        # Maintain remember token in URL so both bookmark & IP persist
-        if "auth_token" not in st.query_params:
-            st.query_params["auth_token"] = generate_remember_token(ip_user["username"])
 
 # 3. Fallback for local Mac developer machine
 if "authenticated" not in st.session_state:
@@ -117,9 +116,8 @@ if not st.session_state.authenticated:
                         log_user_access(user_dict["username"], user_dict.get("email", ""))
                         # Always persist session for this IP and browser
                         save_ip_session(client_ip, user_dict)
-                        if remember_me:
-                            t = generate_remember_token(user_dict["username"])
-                            st.query_params["auth_token"] = t
+                        if "auth_token" in st.query_params:
+                            del st.query_params["auth_token"]
                         st.success(f"Welcome back, {user_dict['username']}!")
                         st.rerun()
                     else:
