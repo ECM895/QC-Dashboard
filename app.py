@@ -157,6 +157,11 @@ def show_status_popup(cat, status_name, filtered_records):
     
     st.dataframe(filtered_records, use_container_width=True, hide_index=True)
 
+from gdrive_sync import sync_from_gdrive
+
+# Check Google Drive for updated or new logs (cached, checks at most once every 5 minutes)
+sync_from_gdrive(force=False)
+
 # Collect all Excel files across auto_logs, logs, and .temp_uploads
 file_metadata = []
 scanned_files = []
@@ -261,7 +266,7 @@ st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 
 # ── Filter Toolbar ────────────────────────────────────────────────────────────
 st.markdown("<div style='background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px;padding:14px 18px;margin-bottom:16px;box-shadow:0 2px 6px rgba(15,23,42,.04);'>", unsafe_allow_html=True)
-fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([1.2, 1.2, 1.0, 1.0, 1.4, 1.4])
+fc1, fc2, fc3, fc4, fc5, fc6, fc7 = st.columns([1.1, 1.1, 0.9, 0.9, 1.3, 1.3, 1.3])
 with fc1:
     st.date_input("Start Date", key="start_date", min_value=min_date, max_value=max_date)
 with fc2:
@@ -299,6 +304,15 @@ with fc6:
         )
     else:
         st.button("⬇️ Download PPT", disabled=True, use_container_width=True)
+with fc7:
+    st.write("")
+    st.write("")
+    if st.button("🔄 Sync Drive", key="btn_sync_gdrive", help="Pull updated logs from shared Google Drive folder", use_container_width=True):
+        with st.spinner("Checking Google Drive for updated logs..."):
+            sync_from_gdrive(force=True)
+            st.cache_data.clear()
+            st.success("Google Drive synchronized!")
+            st.rerun()
 
 st.markdown("</div>", unsafe_allow_html=True)  # Close filter card
 
