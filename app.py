@@ -32,8 +32,26 @@ st.set_page_config(
 inject_custom_css()
 
 # ── Authentication Gate ────────────────────────────────────────────────────────
+# Detect if running on local Mac
+is_local_mac = (
+    os.path.exists("/Users/uzairahmad") or 
+    os.environ.get("USER") == "uzairahmad" or
+    "mac" in os.uname().sysname.lower() or
+    "darwin" in os.uname().sysname.lower()
+)
+
 if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+    if is_local_mac:
+        # Auto-login as Admin on local machine without password prompt
+        st.session_state.authenticated = True
+        st.session_state.user_info = {
+            "username": "uzair087",
+            "email": "uzair.ahmad@ecm-jv.com",
+            "role": "admin"
+        }
+    else:
+        st.session_state.authenticated = False
+
 if "user_info" not in st.session_state:
     st.session_state.user_info = None
 
