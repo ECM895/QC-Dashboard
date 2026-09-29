@@ -3,6 +3,8 @@ import datetime
 import pandas as pd
 import math
 import os
+import plotly.express as px
+import plotly.graph_objects as go
 from data_handler import (
     process_uploaded_logs, filter_data, get_ncr_master_data,
     get_training_data, get_lessons_learned_data, get_post_pour_data,
@@ -13,6 +15,7 @@ from visualizations import (
     render_category_box, section_title,
     plot_donut_chart, plot_bar_chart, plot_grouped_bar_chart,
     plot_100p_stacked_bar, plot_pareto_chart, plot_post_pour_status,
+    plot_isometric_3d_kpi_pillars, render_executive_kpi_table,
     render_lesson_learned_card, render_best_practice_card,
     status_color_map, PLOTLY_CONFIG
 )
@@ -1244,67 +1247,27 @@ elif st.session_state.current_view == "MONTHLY":
         "📊 KPI Performance Distribution Charts"
     ])
 
-    def render_styled_kpi_table(kpi_df, title_label):
-        if kpi_df is None or len(kpi_df) == 0:
-            st.info("No submittal records available to compute KPIs.")
-            return
 
-        disp_df = kpi_df.copy()
-        
-        # Calculate summary totals row
-        tot_all = disp_df['Total'].sum()
-        ca_all = disp_df['Code A'].sum()
-        cb_all = disp_df['Code B'].sum()
-        cc_all = disp_df['Code C'].sum()
-        cd_all = disp_df['Code D'].sum()
-        ur_all = disp_df['Under Review'].sum()
-        decided_all = tot_all - ur_all
-        total_rate = ((ca_all + cb_all) / decided_all * 100) if decided_all > 0 else 0
-
-        summary_row = pd.DataFrame([{
-            'KPI Category': 'PROJECT TOTAL',
-            'Total': tot_all,
-            'Code A': ca_all,
-            'Code B': cb_all,
-            'Code C': cc_all,
-            'Code D': cd_all,
-            'Under Review': ur_all,
-            'Approved % (A & B)': f"{total_rate:.0f}%",
-            '_rate_num': total_rate
-        }])
-        table_with_total = pd.concat([disp_df, summary_row], ignore_index=True)
-
-        # Style matching the user's reference sheet
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #B45309 0%, #D97706 100%); padding: 10px 18px; border-radius: 10px 10px 0 0; color: #FFFFFF; font-weight: 800; font-size: 0.95rem; letter-spacing: 0.05em; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.06);'>
-            {title_label}
-        </div>
-        """, unsafe_allow_html=True)
-
-        cols_to_show = ['KPI Category', 'Total', 'Code A', 'Code B', 'Code C', 'Code D', 'Under Review', 'Approved % (A & B)']
-        st.dataframe(
-            table_with_total[cols_to_show],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "KPI Category": st.column_config.TextColumn("Submittal / Document Type", width="medium"),
-                "Total": st.column_config.NumberColumn("Total Submissions", format="%d"),
-                "Code A": st.column_config.NumberColumn("Code A (Approved)", format="%d"),
-                "Code B": st.column_config.NumberColumn("Code B (Appr. w/ Notes)", format="%d"),
-                "Code C": st.column_config.NumberColumn("Code C (Revise)", format="%d"),
-                "Code D": st.column_config.NumberColumn("Code D (Reject)", format="%d"),
-                "Under Review": st.column_config.NumberColumn("Under Review (Deducted)", format="%d"),
-                "Approved % (A & B)": st.column_config.TextColumn("Approved % (A & B)", width="small")
-            }
-        )
-
-        st.caption("ℹ️ *Note: 'Under Review' items are strictly deducted from Total before calculating Approved %: `(Code A + Code B) / (Total - Under Review)`.*")
 
     with tab_cum_kpi:
-        render_styled_kpi_table(cum_kpi, "KPI — CUMULATIVE MASTER STATUS")
+        render_executive_kpi_table(cum_kpi, "KPI — CUMULATIVE MASTER STATUS")
         
+        st.markdown("<div style='margin-top: 18px;'></div>", unsafe_allow_html=True)
+        # 3D Isometric KPI Pillars Visualization
+        st.markdown("""
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <div style="font-size: 1.05rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.25rem;">🏛️</span> 3D ISOMETRIC KPI APPROVAL PERFORMANCE PILLARS
+            </div>
+            <span style="font-size: 0.75rem; color: #64748B; font-weight: 600;">Interactive 3D Perspective &bull; Rotate &amp; Hover to Inspect</span>
+        </div>
+        """, unsafe_allow_html=True)
+        fig_iso = plot_isometric_3d_kpi_pillars(cum_kpi, height=480)
+        if fig_iso:
+            st.plotly_chart(fig_iso, use_container_width=True, config={'displayModeBar': False, 'responsive': True})
+
         st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
-        # KPI KPI Metric Highlights
+        # KPI Metric Highlights
         if cum_kpi is not None and len(cum_kpi) > 0:
             k1, k2, k3, k4 = st.columns(4)
             with k1:
@@ -1320,7 +1283,7 @@ elif st.session_state.current_view == "MONTHLY":
                 st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #6366F1;"><div class="detail-kpi-title">OVERALL COMPLIANCE</div><div class="detail-kpi-value" style="color: #6366F1;">{ov_rate:.1f}%</div><div class="detail-kpi-sub">Decided approval index</div></div>', unsafe_allow_html=True)
 
     with tab_month_kpi:
-        render_styled_kpi_table(period_kpi, f"KPI — TIMEFRAME STATUS ({date_range_str})")
+        render_executive_kpi_table(period_kpi, f"KPI — TIMEFRAME STATUS ({date_range_str})")
 
         st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
         # Monthly progression table
@@ -1389,9 +1352,10 @@ elif st.session_state.current_view == "MONTHLY":
                         'Code C': c,
                         'Code D': d,
                         'Under Review': ur,
-                        'Approved % (A & B)': f"{rate:.0f}%"
+                        'Approved % (A & B)': f"{rate:.0f}%",
+                        '_rate_num': rate
                     })
-                render_styled_kpi_table(pd.DataFrame(m_rows), f"MONTHLY KPI TABLE — {sel_m.upper()}")
+                render_executive_kpi_table(pd.DataFrame(m_rows), f"MONTHLY KPI TABLE — {sel_m.upper()}")
         except Exception as e:
             st.info(f"Notice: monthly table breakdown: {e}")
 
@@ -1413,10 +1377,17 @@ elif st.session_state.current_view == "MONTHLY":
                     textposition="outside",
                     textfont=dict(size=11, family="Inter", color="#0F172A", weight=700)
                 )
-                apply_chart_style(fig_rates, "APPROVED % (CODE A + B) BY KPI CATEGORY", height=350)
-                fig_rates.update_yaxes(title="Approved %", range=[0, 115])
-                fig_rates.update_xaxes(title="")
-                fig_rates.update_layout(coloraxis_showscale=False)
+                fig_rates.update_layout(
+                    title=dict(text="<b>APPROVED % (CODE A + B) BY KPI CATEGORY</b>", font=dict(family="Inter", size=13, color="#0F172A")),
+                    font=dict(family="Inter", color="#64748B", size=11),
+                    plot_bgcolor="#FFFFFF",
+                    paper_bgcolor="#FFFFFF",
+                    height=360,
+                    margin=dict(t=48, b=28, l=36, r=20),
+                    coloraxis_showscale=False
+                )
+                fig_rates.update_yaxes(title="Approved %", range=[0, 115], showgrid=True, gridcolor="#F1F5F9")
+                fig_rates.update_xaxes(title="", showgrid=False)
                 st.plotly_chart(fig_rates, use_container_width=True, config=PLOTLY_CONFIG)
 
             with kpi_chart_c2:
@@ -1442,9 +1413,17 @@ elif st.session_state.current_view == "MONTHLY":
                     textfont=dict(color="#FFFFFF", weight=700),
                     marker=dict(line=dict(color="rgba(255,255,255,0.7)", width=1.5))
                 )
-                apply_chart_style(fig_kpi_dist, "SUBMITTAL VOLUME DISTRIBUTION BY STATUS", height=350)
-                fig_kpi_dist.update_xaxes(title="")
-                fig_kpi_dist.update_yaxes(title="Document Count")
+                fig_kpi_dist.update_layout(
+                    title=dict(text="<b>SUBMITTAL VOLUME DISTRIBUTION BY STATUS</b>", font=dict(family="Inter", size=13, color="#0F172A")),
+                    font=dict(family="Inter", color="#64748B", size=11),
+                    plot_bgcolor="#FFFFFF",
+                    paper_bgcolor="#FFFFFF",
+                    height=360,
+                    margin=dict(t=48, b=28, l=36, r=20),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                fig_kpi_dist.update_xaxes(title="", showgrid=False)
+                fig_kpi_dist.update_yaxes(title="Document Count", showgrid=True, gridcolor="#F1F5F9")
                 st.plotly_chart(fig_kpi_dist, use_container_width=True, config=PLOTLY_CONFIG)
 
 # =============================================================================

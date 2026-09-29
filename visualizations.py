@@ -1045,3 +1045,309 @@ def render_best_practice_card(item):
         </div>
     </div>"""
     st.markdown(html, unsafe_allow_html=True)
+
+
+def plot_isometric_3d_kpi_pillars(df, height=480):
+    """
+    Renders an authentic, vibrant 3D isometric pillar chart replicating the
+    user's visual design (media_1790676019867.png) with glowing prism columns,
+    isometric 3D perspective shading, floating metric badges, and interactive inspection.
+    """
+    if df is None or len(df) == 0:
+        return None
+
+    pillar_palettes = [
+        {"top": "#FDE68A", "front": "#F59E0B", "side": "#D97706", "accent": "#B45309", "icon": "✓"},
+        {"top": "#93C5FD", "front": "#2563EB", "side": "#1D4ED8", "accent": "#1E40AF", "icon": "🔍"},
+        {"top": "#6EE7B7", "front": "#10B981", "side": "#059669", "accent": "#047857", "icon": "📊"},
+        {"top": "#FDA4AF", "front": "#F43F5E", "side": "#E11D48", "accent": "#BE123C", "icon": "📈"},
+        {"top": "#A5F3FC", "front": "#06B6D4", "side": "#0891B2", "accent": "#0E7490", "icon": "⚙️"},
+        {"top": "#FBCFE8", "front": "#EC4899", "side": "#DB2777", "accent": "#9D174D", "icon": "📦"},
+        {"top": "#DDD6FE", "front": "#8B5CF6", "side": "#7C3AED", "accent": "#6D28D9", "icon": "📋"},
+        {"top": "#BAE6FD", "front": "#0EA5E9", "side": "#0284C7", "accent": "#0369A1", "icon": "📐"},
+    ]
+
+    fig = go.Figure()
+    col_width = 0.55
+    col_depth = 0.55
+
+    for idx, row in df.reset_index(drop=True).iterrows():
+        cat = row.get('KPI Category', f'Cat {idx+1}')
+        rate = float(row.get('_rate_num', 0))
+        total = int(row.get('Total', 0))
+        ca = int(row.get('Code A', 0))
+        cb = int(row.get('Code B', 0))
+        cc = int(row.get('Code C', 0))
+        cd = int(row.get('Code D', 0))
+        ur = int(row.get('Under Review', 0))
+
+        h = max(rate, 4.0)
+        x_center = idx * 1.3
+        y_center = 0.0
+
+        x0 = x_center - col_width / 2
+        x1 = x_center + col_width / 2
+        y0 = y_center - col_depth / 2
+        y1 = y_center + col_depth / 2
+
+        pal = pillar_palettes[idx % len(pillar_palettes)]
+
+        vx = [x0, x1, x1, x0, x0, x1, x1, x0]
+        vy = [y0, y0, y1, y1, y0, y0, y1, y1]
+        vz = [0,  0,  0,  0,  h,  h,  h,  h]
+
+        i = [0, 0, 1, 1, 4, 4, 0, 0, 2, 2, 0, 0]
+        j = [1, 5, 2, 6, 5, 6, 4, 7, 3, 7, 3, 2]
+        k = [5, 4, 6, 5, 6, 7, 7, 3, 7, 6, 2, 1]
+
+        hover_info = (
+            f"<b>{cat}</b><br>" +
+            f"━━━━━━━━━━━━━━━━━━<br>" +
+            f"<b>Approved % (A & B):</b> {rate:.1f}%<br>" +
+            f"Total Submissions: {total:,}<br>" +
+            f"Code A (Approved): {ca:,}<br>" +
+            f"Code B (Approved w/ Notes): {cb:,}<br>" +
+            f"Code C (Revise & Resubmit): {cc:,}<br>" +
+            f"Code D (Rejected): {cd:,}<br>" +
+            f"Under Review (Deducted): {ur:,}"
+        )
+
+        fig.add_trace(go.Mesh3d(
+            x=vx, y=vy, z=vz,
+            i=i, j=j, k=k,
+            color=pal['front'],
+            flatshading=True,
+            lighting=dict(
+                ambient=0.65,
+                diffuse=0.9,
+                specular=0.5,
+                roughness=0.25,
+                fresnel=0.3
+            ),
+            lightposition=dict(x=10, y=-20, z=50),
+            opacity=0.92,
+            name=cat,
+            hoverinfo="text",
+            hovertext=hover_info,
+            showscale=False
+        ))
+
+        # Floating percentage label on top of each 3D pillar (like the reference graphic)
+        fig.add_trace(go.Scatter3d(
+            x=[x_center],
+            y=[y_center],
+            z=[h + 7],
+            mode="text+markers",
+            text=[f"<b>{rate:.0f}%</b>"],
+            textposition="middle center",
+            textfont=dict(family="Inter, sans-serif", size=13, color="#0F172A"),
+            marker=dict(
+                size=12,
+                color=pal['top'],
+                line=dict(color=pal['front'], width=2),
+                symbol="circle"
+            ),
+            hoverinfo="text",
+            hovertext=hover_info,
+            showlegend=False
+        ))
+
+        # Dashed antenna / pin indicator reaching upwards like in the user's image
+        fig.add_trace(go.Scatter3d(
+            x=[x_center, x_center],
+            y=[y_center, y_center],
+            z=[h, h + 14],
+            mode="lines",
+            line=dict(color="#94A3B8", width=3, dash="dot"),
+            hoverinfo="none",
+            showlegend=False
+        ))
+
+        # Category icon/badge symbol floating on top pin
+        fig.add_trace(go.Scatter3d(
+            x=[x_center],
+            y=[y_center],
+            z=[h + 16],
+            mode="text",
+            text=[pal['icon']],
+            textfont=dict(size=14, color=pal['accent']),
+            hoverinfo="text",
+            hovertext=f"{cat} KPI Pillar",
+            showlegend=False
+        ))
+
+        # Category Base Tag at bottom
+        fig.add_trace(go.Scatter3d(
+            x=[x_center],
+            y=[y_center],
+            z=[-4],
+            mode="text",
+            text=[f"<b>{cat}</b>"],
+            textposition="bottom center",
+            textfont=dict(family="Inter, sans-serif", size=11, color="#334155"),
+            hoverinfo="none",
+            showlegend=False
+        ))
+
+    # Executive camera view: Isometric elevation angle
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(showbackground=False, showticklabels=False, title="", showgrid=False, zeroline=False),
+            yaxis=dict(showbackground=False, showticklabels=False, title="", showgrid=False, zeroline=False),
+            zaxis=dict(showbackground=True, backgroundcolor="#F8FAFC", title="", showticklabels=False, showgrid=False, zeroline=False, range=[-8, 125]),
+            camera=dict(
+                eye=dict(x=1.65, y=-1.85, z=1.2),
+                center=dict(x=0.0, y=0.0, z=-0.1),
+                up=dict(x=0, y=0, z=1)
+            ),
+            aspectratio=dict(x=2.2, y=1.0, z=1.1)
+        ),
+        margin=dict(l=0, r=0, t=10, b=0),
+        height=height,
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        showlegend=False
+    )
+    return fig
+
+
+def render_executive_kpi_table(df, title_label="KPI — CUMULATIVE MASTER STATUS"):
+    """
+    Renders an executive, large, high-contrast, polished HTML table for KPI submittals.
+    Includes large typography, vivid status pills, bold totals, and clear percentage bars.
+    """
+    if df is None or len(df) == 0:
+        st.info("No KPI records available to display.")
+        return
+
+    disp_df = df.copy()
+
+    # Calculate summary totals row
+    tot_all = int(disp_df['Total'].sum())
+    ca_all = int(disp_df['Code A'].sum())
+    cb_all = int(disp_df['Code B'].sum())
+    cc_all = int(disp_df['Code C'].sum())
+    cd_all = int(disp_df['Code D'].sum())
+    ur_all = int(disp_df['Under Review'].sum())
+    decided_all = tot_all - ur_all
+    total_rate = ((ca_all + cb_all) / decided_all * 100) if decided_all > 0 else 0
+
+    rows_html = []
+    for _, r in disp_df.iterrows():
+        cat = r.get('KPI Category', '')
+        tot = int(r.get('Total', 0))
+        ca = int(r.get('Code A', 0))
+        cb = int(r.get('Code B', 0))
+        cc = int(r.get('Code C', 0))
+        cd = int(r.get('Code D', 0))
+        ur = int(r.get('Under Review', 0))
+        rate_val = float(r.get('_rate_num', 0))
+
+        if rate_val >= 80:
+            badge_bg = "#ECFDF5"
+            badge_color = "#047857"
+            badge_border = "#A7F3D0"
+        elif rate_val >= 50:
+            badge_bg = "#FFFBEB"
+            badge_color = "#B45309"
+            badge_border = "#FDE68A"
+        else:
+            badge_bg = "#FEF2F2"
+            badge_color = "#B91C1C"
+            badge_border = "#FECACA"
+
+        rows_html.append(f"""
+        <tr style="border-bottom: 1px solid #E2E8F0; transition: background 0.15s ease;" onmouseover="this.style.background='#F8FAFC';" onmouseout="this.style.background='white';">
+            <td style="padding: 14px 18px; font-weight: 700; color: #0F172A; font-size: 0.96rem;">
+                <span style="display:inline-block; width: 8px; height: 8px; border-radius: 50%; background: #2563EB; margin-right: 8px;"></span>
+                {cat}
+            </td>
+            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.98rem; color: #0F172A;">{tot:,}</td>
+            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #059669;">
+                <span style="background: #ECFDF5; padding: 4px 10px; border-radius: 6px; border: 1px solid #A7F3D0;">{ca:,}</span>
+            </td>
+            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #0284C7;">
+                <span style="background: #F0F9FF; padding: 4px 10px; border-radius: 6px; border: 1px solid #BAE6FD;">{cb:,}</span>
+            </td>
+            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #D97706;">
+                <span style="background: #FFFBEB; padding: 4px 10px; border-radius: 6px; border: 1px solid #FDE68A;">{cc:,}</span>
+            </td>
+            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #DC2626;">
+                <span style="background: #FEF2F2; padding: 4px 10px; border-radius: 6px; border: 1px solid #FECACA;">{cd:,}</span>
+            </td>
+            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #64748B;">
+                <span style="background: #F1F5F9; padding: 4px 10px; border-radius: 6px; border: 1px solid #CBD5E1;">{ur:,}</span>
+            </td>
+            <td style="padding: 14px 18px; text-align: center;">
+                <div style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="display: inline-block; background: {badge_bg}; color: {badge_color}; border: 1px solid {badge_border}; font-weight: 800; font-size: 0.95rem; padding: 4px 12px; border-radius: 8px; min-width: 60px;">
+                        {rate_val:.0f}%
+                    </span>
+                    <div style="width: 70px; height: 8px; background: #E2E8F0; border-radius: 9999px; overflow: hidden; display: inline-block;">
+                        <div style="width: {min(max(rate_val, 0), 100)}%; height: 100%; background: {badge_color}; border-radius: 9999px;"></div>
+                    </div>
+                </div>
+            </td>
+        </tr>
+        """)
+
+    tot_rate_color = "#047857" if total_rate >= 75 else "#B45309"
+    tot_rate_bg = "#ECFDF5" if total_rate >= 75 else "#FFFBEB"
+    tot_rate_border = "#A7F3D0" if total_rate >= 75 else "#FDE68A"
+
+    total_row_html = f"""
+    <tr style="background: #F8FAFC; border-top: 3px solid #0F172A; border-bottom: 2px solid #0F172A;">
+        <td style="padding: 16px 18px; font-weight: 900; color: #0F172A; font-size: 1.05rem; letter-spacing: 0.03em;">
+            🌟 PROJECT TOTAL
+        </td>
+        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.15rem; color: #0F172A;">{tot_all:,}</td>
+        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #059669;">{ca_all:,}</td>
+        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #0284C7;">{cb_all:,}</td>
+        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #D97706;">{cc_all:,}</td>
+        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #DC2626;">{cd_all:,}</td>
+        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #64748B;">{ur_all:,}</td>
+        <td style="padding: 16px 18px; text-align: center;">
+            <div style="display: inline-flex; align-items: center; gap: 8px;">
+                <span style="display: inline-block; background: {tot_rate_bg}; color: {tot_rate_color}; border: 2px solid {tot_rate_border}; font-weight: 900; font-size: 1.08rem; padding: 6px 14px; border-radius: 8px; min-width: 70px;">
+                    {total_rate:.0f}%
+                </span>
+                <div style="width: 70px; height: 10px; background: #CBD5E1; border-radius: 9999px; overflow: hidden; display: inline-block;">
+                    <div style="width: {min(max(total_rate, 0), 100)}%; height: 100%; background: {tot_rate_color}; border-radius: 9999px;"></div>
+                </div>
+            </div>
+        </td>
+    </tr>
+    """
+
+    all_rows = "".join(rows_html) + total_row_html
+
+    table_container_html = f"""
+    <div style="background: #FFFFFF; border-radius: 14px; overflow: hidden; box-shadow: 0 4px 20px rgba(15,23,42,0.08); border: 1px solid #E2E8F0; margin-bottom: 16px;">
+        <div style="background: linear-gradient(135deg, #B45309 0%, #D97706 100%); padding: 14px 24px; color: #FFFFFF; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
+            <span>📋 {title_label}</span>
+            <span style="font-size: 0.78rem; font-weight: 600; background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 9999px;">OFFICIAL ACONEX MASTER AUDIT</span>
+        </div>
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', -apple-system, sans-serif; text-align: left;">
+                <thead>
+                    <tr style="background: #0F172A; color: #F8FAFC; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em;">
+                        <th style="padding: 14px 18px; font-weight: 700;">Submittal / Document Type</th>
+                        <th style="padding: 14px 14px; text-align: center; font-weight: 700;">Total</th>
+                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #34D399;">Code A (Appr.)</th>
+                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #38BDF8;">Code B (Notes)</th>
+                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #FBBF24;">Code C (Revise)</th>
+                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #F87171;">Code D (Reject)</th>
+                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #CBD5E1;">Under Review</th>
+                        <th style="padding: 14px 18px; text-align: center; font-weight: 700; color: #60A5FA;">Approved % (A &amp; B)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {all_rows}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+    st.markdown(table_container_html, unsafe_allow_html=True)
+    st.caption("ℹ️ *Note: 'Under Review' items are strictly deducted from Total before calculating Approved %: `(Code A + Code B) / (Total - Under Review)`.*")
+
