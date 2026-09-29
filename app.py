@@ -1237,7 +1237,6 @@ elif st.session_state.current_view == "LESSONS":
 # =============================================================================
 elif st.session_state.current_view == "MONTHLY":
     section_title("🎯 Executive QA/QC KPI & Engineering Submittal Performance Center")
-    st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 16px 0;'>Official QA/QC Compliance Index with approved rate formula: <code>Approved % = (Code A + Code B) / (Total - Under Review)</code>.</p>", unsafe_allow_html=True)
 
     cum_kpi, period_kpi = get_kpi_summary_data(st.session_state.start_date, st.session_state.end_date)
 

@@ -76,11 +76,13 @@ async def main():
             await page.goto('https://ksa1.aconex.com/Logon')
             await page.wait_for_timeout(3000)
             
+            user = os.environ.get('ACONEX_USERNAME', 'uzair_ahmad')
+            pwd = os.environ.get('ACONEX_PASSWORD', '*Abubakar@123*')
             await page.click('#userName')
-            await page.keyboard.type('uzair_ahmad')
+            await page.keyboard.type(user)
             
             await page.click('#password')
-            await page.keyboard.type('*Abubakar@123*')
+            await page.keyboard.type(pwd)
             
             await page.click('#login')
             await page.wait_for_timeout(10000)

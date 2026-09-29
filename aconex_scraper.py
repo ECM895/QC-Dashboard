@@ -21,8 +21,10 @@ async def download_aconex_register():
             
             print("Injecting credentials...")
             # Oracle JET elements require targeting the inner HTML input
-            await page.locator('oj-input-text#userName input').fill('uzair_ahmad')
-            await page.locator('oj-input-password#password input').fill('*Abubakar@123*')
+            user = os.environ.get('ACONEX_USERNAME', 'uzair_ahmad')
+            pwd = os.environ.get('ACONEX_PASSWORD', '*Abubakar@123*')
+            await page.locator('oj-input-text#userName input').fill(user)
+            await page.locator('oj-input-password#password input').fill(pwd)
             await page.click('oj-button#login button')
             
             # Wait for dashboard to load

@@ -1256,98 +1256,63 @@ def render_executive_kpi_table(df, title_label="KPI — CUMULATIVE MASTER STATUS
             badge_color = "#B91C1C"
             badge_border = "#FECACA"
 
-        rows_html.append(f"""
-        <tr style="border-bottom: 1px solid #E2E8F0; transition: background 0.15s ease;" onmouseover="this.style.background='#F8FAFC';" onmouseout="this.style.background='white';">
-            <td style="padding: 14px 18px; font-weight: 700; color: #0F172A; font-size: 0.96rem;">
-                <span style="display:inline-block; width: 8px; height: 8px; border-radius: 50%; background: #2563EB; margin-right: 8px;"></span>
-                {cat}
-            </td>
-            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.98rem; color: #0F172A;">{tot:,}</td>
-            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #059669;">
-                <span style="background: #ECFDF5; padding: 4px 10px; border-radius: 6px; border: 1px solid #A7F3D0;">{ca:,}</span>
-            </td>
-            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #0284C7;">
-                <span style="background: #F0F9FF; padding: 4px 10px; border-radius: 6px; border: 1px solid #BAE6FD;">{cb:,}</span>
-            </td>
-            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #D97706;">
-                <span style="background: #FFFBEB; padding: 4px 10px; border-radius: 6px; border: 1px solid #FDE68A;">{cc:,}</span>
-            </td>
-            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #DC2626;">
-                <span style="background: #FEF2F2; padding: 4px 10px; border-radius: 6px; border: 1px solid #FECACA;">{cd:,}</span>
-            </td>
-            <td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #64748B;">
-                <span style="background: #F1F5F9; padding: 4px 10px; border-radius: 6px; border: 1px solid #CBD5E1;">{ur:,}</span>
-            </td>
-            <td style="padding: 14px 18px; text-align: center;">
-                <div style="display: inline-flex; align-items: center; gap: 8px;">
-                    <span style="display: inline-block; background: {badge_bg}; color: {badge_color}; border: 1px solid {badge_border}; font-weight: 800; font-size: 0.95rem; padding: 4px 12px; border-radius: 8px; min-width: 60px;">
-                        {rate_val:.0f}%
-                    </span>
-                    <div style="width: 70px; height: 8px; background: #E2E8F0; border-radius: 9999px; overflow: hidden; display: inline-block;">
-                        <div style="width: {min(max(rate_val, 0), 100)}%; height: 100%; background: {badge_color}; border-radius: 9999px;"></div>
-                    </div>
-                </div>
-            </td>
-        </tr>
-        """)
+        rows_html.append(
+            '<tr style="border-bottom: 1px solid #E2E8F0;">'
+            f'<td style="padding: 14px 18px; font-weight: 700; color: #0F172A; font-size: 0.96rem;"><span style="display:inline-block; width: 8px; height: 8px; border-radius: 50%; background: #2563EB; margin-right: 8px;"></span>{cat}</td>'
+            f'<td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.98rem; color: #0F172A;">{tot:,}</td>'
+            f'<td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #059669;"><span style="background: #ECFDF5; padding: 4px 10px; border-radius: 6px; border: 1px solid #A7F3D0;">{ca:,}</span></td>'
+            f'<td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #0284C7;"><span style="background: #F0F9FF; padding: 4px 10px; border-radius: 6px; border: 1px solid #BAE6FD;">{cb:,}</span></td>'
+            f'<td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #D97706;"><span style="background: #FFFBEB; padding: 4px 10px; border-radius: 6px; border: 1px solid #FDE68A;">{cc:,}</span></td>'
+            f'<td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #DC2626;"><span style="background: #FEF2F2; padding: 4px 10px; border-radius: 6px; border: 1px solid #FECACA;">{cd:,}</span></td>'
+            f'<td style="padding: 14px 14px; text-align: center; font-weight: 700; font-size: 0.95rem; color: #64748B;"><span style="background: #F1F5F9; padding: 4px 10px; border-radius: 6px; border: 1px solid #CBD5E1;">{ur:,}</span></td>'
+            f'<td style="padding: 14px 18px; text-align: center;"><div style="display: inline-flex; align-items: center; gap: 8px;"><span style="display: inline-block; background: {badge_bg}; color: {badge_color}; border: 1px solid {badge_border}; font-weight: 800; font-size: 0.95rem; padding: 4px 12px; border-radius: 8px; min-width: 60px;">{rate_val:.0f}%</span><div style="width: 70px; height: 8px; background: #E2E8F0; border-radius: 9999px; overflow: hidden; display: inline-block;"><div style="width: {min(max(rate_val, 0), 100)}%; height: 100%; background: {badge_color}; border-radius: 9999px;"></div></div></div></td>'
+            '</tr>'
+        )
 
     tot_rate_color = "#047857" if total_rate >= 75 else "#B45309"
     tot_rate_bg = "#ECFDF5" if total_rate >= 75 else "#FFFBEB"
     tot_rate_border = "#A7F3D0" if total_rate >= 75 else "#FDE68A"
 
-    total_row_html = f"""
-    <tr style="background: #F8FAFC; border-top: 3px solid #0F172A; border-bottom: 2px solid #0F172A;">
-        <td style="padding: 16px 18px; font-weight: 900; color: #0F172A; font-size: 1.05rem; letter-spacing: 0.03em;">
-            🌟 PROJECT TOTAL
-        </td>
-        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.15rem; color: #0F172A;">{tot_all:,}</td>
-        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #059669;">{ca_all:,}</td>
-        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #0284C7;">{cb_all:,}</td>
-        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #D97706;">{cc_all:,}</td>
-        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #DC2626;">{cd_all:,}</td>
-        <td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #64748B;">{ur_all:,}</td>
-        <td style="padding: 16px 18px; text-align: center;">
-            <div style="display: inline-flex; align-items: center; gap: 8px;">
-                <span style="display: inline-block; background: {tot_rate_bg}; color: {tot_rate_color}; border: 2px solid {tot_rate_border}; font-weight: 900; font-size: 1.08rem; padding: 6px 14px; border-radius: 8px; min-width: 70px;">
-                    {total_rate:.0f}%
-                </span>
-                <div style="width: 70px; height: 10px; background: #CBD5E1; border-radius: 9999px; overflow: hidden; display: inline-block;">
-                    <div style="width: {min(max(total_rate, 0), 100)}%; height: 100%; background: {tot_rate_color}; border-radius: 9999px;"></div>
-                </div>
-            </div>
-        </td>
-    </tr>
-    """
+    total_row_html = (
+        '<tr style="background: #F8FAFC; border-top: 3px solid #0F172A; border-bottom: 2px solid #0F172A;">'
+        '<td style="padding: 16px 18px; font-weight: 900; color: #0F172A; font-size: 1.05rem; letter-spacing: 0.03em;">🌟 PROJECT TOTAL</td>'
+        f'<td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.15rem; color: #0F172A;">{tot_all:,}</td>'
+        f'<td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #059669;">{ca_all:,}</td>'
+        f'<td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #0284C7;">{cb_all:,}</td>'
+        f'<td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #D97706;">{cc_all:,}</td>'
+        f'<td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #DC2626;">{cd_all:,}</td>'
+        f'<td style="padding: 16px 14px; text-align: center; font-weight: 900; font-size: 1.05rem; color: #64748B;">{ur_all:,}</td>'
+        f'<td style="padding: 16px 18px; text-align: center;"><div style="display: inline-flex; align-items: center; gap: 8px;"><span style="display: inline-block; background: {tot_rate_bg}; color: {tot_rate_color}; border: 2px solid {tot_rate_border}; font-weight: 900; font-size: 1.08rem; padding: 6px 14px; border-radius: 8px; min-width: 70px;">{total_rate:.0f}%</span><div style="width: 70px; height: 10px; background: #CBD5E1; border-radius: 9999px; overflow: hidden; display: inline-block;"><div style="width: {min(max(total_rate, 0), 100)}%; height: 100%; background: {tot_rate_color}; border-radius: 9999px;"></div></div></div></td>'
+        '</tr>'
+    )
 
     all_rows = "".join(rows_html) + total_row_html
 
-    table_container_html = f"""
-    <div style="background: #FFFFFF; border-radius: 14px; overflow: hidden; box-shadow: 0 4px 20px rgba(15,23,42,0.08); border: 1px solid #E2E8F0; margin-bottom: 16px;">
-        <div style="background: linear-gradient(135deg, #B45309 0%, #D97706 100%); padding: 14px 24px; color: #FFFFFF; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
-            <span>📋 {title_label}</span>
-            <span style="font-size: 0.78rem; font-weight: 600; background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 9999px;">OFFICIAL ACONEX MASTER AUDIT</span>
-        </div>
-        <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', -apple-system, sans-serif; text-align: left;">
-                <thead>
-                    <tr style="background: #0F172A; color: #F8FAFC; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em;">
-                        <th style="padding: 14px 18px; font-weight: 700;">Submittal / Document Type</th>
-                        <th style="padding: 14px 14px; text-align: center; font-weight: 700;">Total</th>
-                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #34D399;">Code A (Appr.)</th>
-                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #38BDF8;">Code B (Notes)</th>
-                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #FBBF24;">Code C (Revise)</th>
-                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #F87171;">Code D (Reject)</th>
-                        <th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #CBD5E1;">Under Review</th>
-                        <th style="padding: 14px 18px; text-align: center; font-weight: 700; color: #60A5FA;">Approved % (A &amp; B)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {all_rows}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    """
+    table_container_html = (
+        '<div style="background: #FFFFFF; border-radius: 14px; overflow: hidden; box-shadow: 0 4px 20px rgba(15,23,42,0.08); border: 1px solid #E2E8F0; margin-bottom: 16px;">'
+        '<div style="background: linear-gradient(135deg, #B45309 0%, #D97706 100%); padding: 14px 24px; color: #FFFFFF; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">'
+        f'<span>📋 {title_label}</span>'
+        '<span style="font-size: 0.78rem; font-weight: 600; background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 9999px;">OFFICIAL ACONEX MASTER AUDIT</span>'
+        '</div>'
+        '<div style="overflow-x: auto;">'
+        '<table style="width: 100%; border-collapse: collapse; font-family: Inter, -apple-system, sans-serif; text-align: left;">'
+        '<thead>'
+        '<tr style="background: #0F172A; color: #F8FAFC; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em;">'
+        '<th style="padding: 14px 18px; font-weight: 700;">Submittal / Document Type</th>'
+        '<th style="padding: 14px 14px; text-align: center; font-weight: 700;">Total</th>'
+        '<th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #34D399;">Code A (Appr.)</th>'
+        '<th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #38BDF8;">Code B (Notes)</th>'
+        '<th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #FBBF24;">Code C (Revise)</th>'
+        '<th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #F87171;">Code D (Reject)</th>'
+        '<th style="padding: 14px 14px; text-align: center; font-weight: 700; color: #CBD5E1;">Under Review</th>'
+        '<th style="padding: 14px 18px; text-align: center; font-weight: 700; color: #60A5FA;">Approved % (A &amp; B)</th>'
+        '</tr>'
+        '</thead>'
+        f'<tbody>{all_rows}</tbody>'
+        '</table>'
+        '</div>'
+        '</div>'
+    )
     st.markdown(table_container_html, unsafe_allow_html=True)
-    st.caption("ℹ️ *Note: 'Under Review' items are strictly deducted from Total before calculating Approved %: `(Code A + Code B) / (Total - Under Review)`.*")
+
 
