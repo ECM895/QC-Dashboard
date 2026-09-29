@@ -3,7 +3,6 @@ import datetime
 import pandas as pd
 import math
 import os
-import shutil
 from data_handler import (
     process_uploaded_logs, filter_data, get_ncr_master_data,
     get_training_data, get_lessons_learned_data
@@ -12,18 +11,19 @@ from visualizations import (
     inject_custom_css, render_hero_header, render_hero_metric_cards,
     render_category_box, section_title,
     plot_donut_chart, plot_bar_chart, plot_grouped_bar_chart,
-    plot_100p_stacked_bar, plot_pareto_chart,
-    render_ncr_warning_table, render_lesson_learned_card,
-    render_best_practice_card, status_color_map
+    plot_100p_stacked_bar, plot_pareto_chart, plot_post_pour_status,
+    render_lesson_learned_card, render_best_practice_card,
+    status_color_map, PLOTLY_CONFIG
 )
-
 from auth_manager import (
     authenticate_user, log_user_access, add_user, 
     delete_user, get_all_users_df, get_access_stats,
-    generate_remember_token, verify_remember_token,
-    get_client_ip, save_ip_session, get_user_by_ip, clear_ip_session
+    verify_remember_token, get_client_ip, save_ip_session, 
+    get_user_by_ip, clear_ip_session
 )
+from gdrive_sync import sync_from_gdrive
 
+# ── Streamlit Page Configuration ─────────────────────────────────────────────
 st.set_page_config(
     page_title="QA/QC Opera House Dashboard | Royal Diriyah Opera House",
     page_icon="favicon.png" if os.path.exists("favicon.png") else "ecm_logo.png",
@@ -33,8 +33,7 @@ st.set_page_config(
 
 inject_custom_css()
 
-# ── Authentication Gate ────────────────────────────────────────────────────────
-# Detect if running on local Mac
+# ── Authentication & Access Control Gate ──────────────────────────────────────
 is_local_mac = (
     os.path.exists("/Users/uzairahmad") or 
     os.environ.get("USER") == "uzairahmad" or
@@ -42,7 +41,6 @@ is_local_mac = (
     "darwin" in os.uname().sysname.lower()
 )
 
-# Get current client IP
 client_ip = get_client_ip()
 
 # 1. Check persistent remember token from URL
@@ -53,10 +51,9 @@ if token_param and "authenticated" not in st.session_state:
         st.session_state.authenticated = True
         st.session_state.user_info = token_user
         save_ip_session(client_ip, token_user)
-    # Clean the token from the visible browser URL bar immediately for a clean URL
     del st.query_params["auth_token"]
 
-# 2. Check saved IP session (auto-login for recognized client IP)
+# 2. Check saved IP session (auto-login recognized client IP)
 if "authenticated" not in st.session_state or not st.session_state.authenticated:
     has_ip_sess, ip_user = get_user_by_ip(client_ip)
     if has_ip_sess and ip_user:
@@ -79,12 +76,12 @@ if "authenticated" not in st.session_state:
 if "user_info" not in st.session_state:
     st.session_state.user_info = None
 
+# Show Login Page if not authenticated
 if not st.session_state.authenticated:
     _, center_col, _ = st.columns([1.2, 1.2, 1.2])
     with center_col:
         st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
         if os.path.exists("ecm_logo.png"):
-            # ECM Logo reduced 50% in size
             col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
             with col_l2:
                 st.image("ecm_logo.png", use_container_width=True)
@@ -114,7 +111,6 @@ if not st.session_state.authenticated:
                         st.session_state.authenticated = True
                         st.session_state.user_info = user_dict
                         log_user_access(user_dict["username"], user_dict.get("email", ""))
-                        # Always persist session for this IP and browser
                         save_ip_session(client_ip, user_dict)
                         if "auth_token" in st.query_params:
                             del st.query_params["auth_token"]
@@ -136,7 +132,7 @@ if not st.session_state.authenticated:
         """, unsafe_allow_html=True)
     st.stop()
 
-# State Initialization
+# ── State Initialization ──────────────────────────────────────────────────────
 cat_param = st.query_params.get("category", None)
 if cat_param:
     if cat_param == "NCR":
@@ -153,82 +149,88 @@ if 'selected_category' not in st.session_state:
     st.session_state.selected_category = "WIR"
 if 'page_num' not in st.session_state:
     st.session_state.page_num = 1
-if 'ppt_data' not in st.session_state:
-    st.session_state.ppt_data = None
-if 'saved_upload_names' not in st.session_state:
-    st.session_state.saved_upload_names = set()
 
-# Ensure folders exist
+# ── Ensure Project Workspace Directories ──────────────────────────────────────
 AUTO_DIR = "auto_logs"
 LOGS_DIR = "logs"
 UPLOAD_DIR = ".temp_uploads"
 for d in [AUTO_DIR, LOGS_DIR, UPLOAD_DIR]:
     os.makedirs(d, exist_ok=True)
 
-# -------------------------------------------------------------
-# MODAL POPUP DIALOG FOR FILTERED RECORDS
-# -------------------------------------------------------------
-@st.dialog("📋 Submittal Records Breakdown", width="large")
-def show_status_popup(cat, status_name, filtered_records):
-    st.markdown(f"<div style='font-size: 1.25rem; font-weight: 800; color: #0F172A; margin-bottom: 2px;'>{cat} — {status_name}</div>", unsafe_allow_html=True)
-    st.markdown(f"<div style='font-size: 0.85rem; color: #64748B; margin-bottom: 14px;'>Filtered dataset containing <strong>{len(filtered_records):,}</strong> records.</div>", unsafe_allow_html=True)
-    
-    col_d1, col_d2 = st.columns([2.5, 1.5])
-    with col_d2:
-        csv_data = filtered_records.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label=f"⬇️ Download CSV ({len(filtered_records):,} rows)",
-            data=csv_data,
-            file_name=f"{cat}_{status_name.replace(' ', '_')}_{datetime.date.today()}.csv",
-            mime="text/csv",
-            type="primary",
-            use_container_width=True
-        )
-    
-    st.dataframe(filtered_records, use_container_width=True, hide_index=True)
-
-from gdrive_sync import sync_from_gdrive
-
-# Check Google Drive for updated or new logs (cached, checks at most once every 5 minutes)
-sync_from_gdrive(force=False)
-
-# Collect all Excel files across auto_logs, logs, and .temp_uploads
-file_metadata = []
-scanned_files = []
-for d in [AUTO_DIR, LOGS_DIR, UPLOAD_DIR]:
-    if os.path.exists(d):
-        for fn in os.listdir(d):
-            if fn.startswith("~$") or fn.startswith("."): continue
-            if fn.endswith('.xlsx') or fn.endswith('.xls'):
-                fp = os.path.join(d, fn)
-                if os.path.isfile(fp) and fp not in scanned_files:
-                    scanned_files.append(fp)
-                    file_metadata.append((fp, fn, os.path.getmtime(fp)))
-
 @st.cache_data(show_spinner=False)
 def load_and_cache_data(metadata):
-    _files = []
-    for path, name, _ in metadata:
-        class MockFile:
-            def __init__(self, path, name):
-                self.path = path
-                self.name = name
-            def read(self):
-                with open(self.path, 'rb') as file: return file.read()
-        _files.append(MockFile(path, name))
-    return process_uploaded_logs(_files)
+    """Loads and caches Aconex submittals and auxiliary logs based on file modification times."""
+    class FileRef:
+        def __init__(self, path, name):
+            self.path = path
+            self.name = name
+        def read(self):
+            with open(self.path, 'rb') as f: return f.read()
+            
+    files = [FileRef(path, name) for path, name, _ in metadata]
+    return process_uploaded_logs(files)
 
-# Load data silently in background without blocking screen spinner
-df, calibration_data, concrete_df, is_mock = load_and_cache_data(tuple(file_metadata))
+# Compute current file metadata signature
+current_file_metadata = []
+_seen_fns = set()
+_scan_targets = [AUTO_DIR, UPLOAD_DIR]
+_has_files = any(
+    os.path.exists(d) and any(f.endswith(('.xlsx', '.xls', '.pptx')) and not f.startswith(('~$', '.')) for f in os.listdir(d))
+    for d in _scan_targets
+)
+if not _has_files:
+    _scan_targets.append(LOGS_DIR)
 
-df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-valid_dates = df['Date'].dropna().copy()
-if concrete_df is not None and len(concrete_df) > 0:
-    concrete_df['Date'] = pd.to_datetime(concrete_df['Date'], errors='coerce')
-    valid_dates = pd.concat([valid_dates, concrete_df['Date'].dropna()])
+for d in _scan_targets:
+    if os.path.exists(d):
+        for fn in sorted(os.listdir(d)):
+            if fn.startswith("~$") or fn.startswith("."): continue
+            if (fn.endswith('.xlsx') or fn.endswith('.xls') or fn.endswith('.pptx')) and fn not in _seen_fns:
+                fp = os.path.join(d, fn)
+                if os.path.isfile(fp):
+                    _seen_fns.add(fn)
+                    current_file_metadata.append((fp, fn, os.path.getmtime(fp)))
 
-min_date = valid_dates.min().date() if len(valid_dates) > 0 else (datetime.date.today() - datetime.timedelta(days=365))
-max_date = valid_dates.max().date() if len(valid_dates) > 0 else datetime.date.today()
+metadata_sig = tuple(current_file_metadata)
+files_changed = st.session_state.get('cached_metadata_sig') != metadata_sig
+
+if 'master_data_loaded' not in st.session_state or st.session_state.get('reload_data', False) or files_changed:
+    st.session_state.reload_data = False
+    
+    excel_metadata = [item for item in current_file_metadata if item[1].endswith(('.xlsx', '.xls'))]
+    _df, _calibration_data, _concrete_df, _is_mock = load_and_cache_data(tuple(excel_metadata))
+
+    # Pre-calculate Date Bounds once
+    valid_dates = pd.to_datetime(_df['Date'], errors='coerce').dropna()
+    if _concrete_df is not None and len(_concrete_df) > 0:
+        c_dates = pd.to_datetime(_concrete_df['Date'], errors='coerce').dropna()
+        valid_dates = pd.concat([valid_dates, c_dates])
+
+    valid_dates = valid_dates[(valid_dates.dt.year >= 2024) & (valid_dates.dt.year <= 2030)]
+    _min_date = valid_dates.min().date() if len(valid_dates) > 0 else datetime.date(2025, 1, 1)
+    _max_date = valid_dates.max().date() if len(valid_dates) > 0 else datetime.date.today()
+
+    # Pre-calculate NCR master reconciliation once
+    _ncr_master = get_ncr_master_data(_df)
+
+    st.session_state.master_df = _df
+    st.session_state.calibration_data = _calibration_data
+    st.session_state.concrete_df = _concrete_df
+    st.session_state.is_mock = _is_mock
+    st.session_state.min_date = _min_date
+    st.session_state.max_date = _max_date
+    st.session_state.ncr_master_view = _ncr_master
+    st.session_state.cached_metadata_sig = metadata_sig
+    st.session_state.master_data_loaded = True
+
+# Ultra-fast zero-overhead memory retrieval
+df = st.session_state.master_df
+calibration_data = st.session_state.calibration_data
+concrete_df = st.session_state.concrete_df
+is_mock = st.session_state.is_mock
+min_date = st.session_state.min_date
+max_date = st.session_state.max_date
+ncr_master_view = st.session_state.ncr_master_view
 
 if 'start_date' not in st.session_state or st.session_state.start_date is None:
     st.session_state.start_date = min_date
@@ -259,7 +261,7 @@ def apply_preset_90d():
 
 date_filtered_df = filter_data(df, st.session_state.start_date, st.session_state.end_date, "ALL")
 
-# Top Header
+# ── Render Top Executive Branding Header ─────────────────────────────────────
 date_range_str = f"{st.session_state.start_date.strftime('%d %b %Y')} – {st.session_state.end_date.strftime('%d %b %Y')}"
 render_hero_header("Royal Diriyah Opera House", "DII-Jasara", date_range_str)
 
@@ -277,7 +279,6 @@ nav_definitions = [
 if user_is_admin:
     nav_definitions.append(("ADMIN", "👥 Users"))
 
-# Navigation buttons + Sign Out button
 nav_cols = st.columns(len(nav_definitions) + 1)
 for idx, (k, lbl) in enumerate(nav_definitions):
     with nav_cols[idx]:
@@ -297,13 +298,11 @@ with nav_cols[-1]:
             del st.query_params["auth_token"]
         st.rerun()
 
-st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
-
-
+st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
 
 # ── Filter Toolbar ────────────────────────────────────────────────────────────
-st.markdown("<div style='background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px;padding:14px 18px;margin-bottom:16px;box-shadow:0 2px 6px rgba(15,23,42,.04);'>", unsafe_allow_html=True)
-fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8 = st.columns([1.1, 1.1, 0.8, 0.8, 0.8, 1.2, 1.2, 1.2])
+st.markdown("<div style='background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px;padding:12px 16px;margin-bottom:16px;box-shadow:0 2px 6px rgba(15,23,42,0.04);'>", unsafe_allow_html=True)
+fc1, fc2, fc3, fc4, fc5, fc6, fc7 = st.columns([1.3, 1.3, 0.85, 0.85, 0.85, 0.85, 1.1])
 with fc1:
     st.date_input("Start Date", key="start_date", min_value=min_date, max_value=max_date)
 with fc2:
@@ -323,57 +322,60 @@ with fc5:
 with fc6:
     st.write("")
     st.write("")
-    if st.button("📊 Generate PPT", key="btn_gen_ppt", use_container_width=True):
-        with st.spinner("Compiling PowerPoint slide deck..."):
-            try:
-                from ppt_exporter import generate_ppt
-                st.session_state.ppt_data = generate_ppt(df, concrete_df, st.session_state.start_date, st.session_state.end_date)
-                st.success("Slide deck ready!")
-            except Exception as e:
-                st.error(f"PPT error: {e}")
+    st.button("Last 90D", key="btn_90d", on_click=apply_preset_90d, use_container_width=True)
 with fc7:
     st.write("")
     st.write("")
-    if st.session_state.ppt_data is not None:
-        st.download_button(
-            label="⬇️ Download PPT",
-            data=st.session_state.ppt_data,
-            file_name=f"Quality_Report_{datetime.date.today()}.pptx",
-            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            use_container_width=True,
-            type="primary"
-        )
-    else:
-        st.button("⬇️ Download PPT", disabled=True, use_container_width=True)
-with fc8:
-    st.write("")
-    st.write("")
-    if st.button("🔄 Sync Drive", key="btn_sync_gdrive", help="Pull updated logs from shared Google Drive folder", use_container_width=True):
-        with st.spinner("Checking Google Drive for updated logs..."):
-            sync_from_gdrive(force=True)
+    if st.button("🔄 Sync Drive", key="btn_sync_gdrive", help="Pull updated logs from shared Google Drive", use_container_width=True):
+        with st.spinner("Synchronizing Google Drive files..."):
+            synced = sync_from_gdrive(force=True)
             st.cache_data.clear()
-            st.success("Google Drive synchronized!")
+            st.session_state.reload_data = True
+            st.session_state.master_data_loaded = False
+            st.success("Google Drive synchronized successfully!")
             st.rerun()
 
-st.markdown("</div>", unsafe_allow_html=True)  # Close filter card
+st.markdown("</div>", unsafe_allow_html=True)
 
+# ── Modal Popup Dialog for Filtered Records ───────────────────────────────────
+@st.dialog("📋 Submittal Records Breakdown", width="large")
+def show_status_popup(cat, status_name, filtered_records):
+    st.markdown(f"<div style='font-size: 1.25rem; font-weight: 800; color: #0F172A; margin-bottom: 2px;'>{cat} &mdash; {status_name}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size: 0.85rem; color: #64748B; margin-bottom: 12px;'>Filtered dataset containing <strong>{len(filtered_records):,}</strong> records.</div>", unsafe_allow_html=True)
+    
+    col_d1, col_d2 = st.columns([2.5, 1.5])
+    with col_d2:
+        csv_data = filtered_records.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label=f"⬇️ Download CSV ({len(filtered_records):,} rows)",
+            data=csv_data,
+            file_name=f"{cat}_{status_name.replace(' ', '_')}_{datetime.date.today()}.csv",
+            mime="text/csv",
+            type="primary",
+            use_container_width=True
+        )
+    
+    # Display clean table
+    clean_cols = [c for c in ['Reference No', 'Description', 'Status', 'Date', 'Area', 'Discipline', 'Contractor'] if c in filtered_records.columns]
+    disp = filtered_records[clean_cols] if clean_cols else filtered_records
+    st.dataframe(disp, use_container_width=True, hide_index=True)
 
 def get_cat_status_counts(category, target_df):
     df_cat = target_df[target_df['Category'] == category]
     if category == 'NCR':
-        success = df_cat[df_cat['Status'] == 'Closed'].shape[0]
-        fail = df_cat[df_cat['Status'] == 'Open'].shape[0]
+        success = (df_cat['Status'] == 'Closed').sum()
+        fail = (df_cat['Status'] == 'Open').sum()
         return success, fail, 0, 0
     else:
-        a_app = df_cat[df_cat['Status'] == 'A-Approved'].shape[0]
-        b_app = df_cat[df_cat['Status'] == 'B-Approved with Comments'].shape[0]
-        c_rev = df_cat[df_cat['Status'] == 'C-Revise and Resubmit'].shape[0]
-        d_rej = df_cat[df_cat['Status'] == 'D-Rejected'].shape[0]
+        a_app = (df_cat['Status'] == 'A-Approved').sum()
+        b_app = (df_cat['Status'] == 'B-Approved with Comments').sum()
+        c_rev = (df_cat['Status'] == 'C-Revise and Resubmit').sum()
+        d_rej = (df_cat['Status'] == 'D-Rejected').sum()
         return a_app, b_app, c_rev, d_rej
 
-# -------------------------------------------------------------
+# =============================================================================
 # VIEW 1: EXECUTIVE OVERVIEW
-# -------------------------------------------------------------
+# =============================================================================
 if st.session_state.current_view == "OVERVIEW":
     non_ncr_df = date_filtered_df[date_filtered_df['Category'] != 'NCR']
     ncr_df = date_filtered_df[date_filtered_df['Category'] == 'NCR']
@@ -381,11 +383,16 @@ if st.session_state.current_view == "OVERVIEW":
     total_submittals = len(date_filtered_df)
     total_approved = len(non_ncr_df[non_ncr_df['Status'].isin(['A-Approved', 'B-Approved with Comments', 'Approved'])])
     overall_approval_rate = (total_approved / len(non_ncr_df) * 100) if len(non_ncr_df) > 0 else 0
-    open_ncrs = len(ncr_df[ncr_df['Status'] == 'Open'])
+    
+    # Reconciled NCRs for live project state (retrieved from session state)
+    ncr_master_view = st.session_state.ncr_master_view
+    open_ncrs = (ncr_master_view['Status'] == 'Open').sum()
+    overdue_ncr_count = (ncr_master_view['Aging Category'] == 'Overdue (> 2 Months)').sum()
     
     concrete_vol = 0.0
     if concrete_df is not None and len(concrete_df) > 0:
-        c_filtered = concrete_df[(pd.to_datetime(concrete_df['Date']).dt.date >= st.session_state.start_date) & (pd.to_datetime(concrete_df['Date']).dt.date <= st.session_state.end_date)]
+        c_dates = pd.to_datetime(concrete_df['Date'], errors='coerce').dt.date
+        c_filtered = concrete_df[(c_dates >= st.session_state.start_date) & (c_dates <= st.session_state.end_date)]
         if len(c_filtered) > 0:
             concrete_vol = float(c_filtered['Volume'].sum())
             
@@ -402,34 +409,80 @@ if st.session_state.current_view == "OVERVIEW":
         ("SHD - Shop Drawing Submittals", "SHD", False),
         ("NCR - Non-Conformance Reports", "NCR", True)
     ]
-    
-    ncr_master_view = get_ncr_master_data(date_filtered_df)
-    overdue_ncr_count = len(ncr_master_view[ncr_master_view['Aging Category'] == 'Overdue (> 2 Months)'])
+
+    cat_counts = date_filtered_df.groupby(['Category', 'Status']).size().to_dict()
+    def fast_cat_counts(category):
+        if category == 'NCR':
+            success = cat_counts.get((category, 'Closed'), 0)
+            fail = cat_counts.get((category, 'Open'), 0)
+            return success, fail, 0, 0
+        else:
+            a_app = cat_counts.get((category, 'A-Approved'), 0)
+            b_app = cat_counts.get((category, 'B-Approved with Comments'), 0)
+            c_rev = cat_counts.get((category, 'C-Revise and Resubmit'), 0)
+            d_rej = cat_counts.get((category, 'D-Rejected'), 0)
+            return a_app, b_app, c_rev, d_rej
 
     for i in range(0, len(categories), 2):
         col1, col2 = st.columns(2)
         with col1:
             title, cat, is_ncr = categories[i]
-            a, b, c, d = get_cat_status_counts(cat, date_filtered_df)
+            a, b, c, d = fast_cat_counts(cat)
             total = a + b + c + d
             if is_ncr:
-                rate = f"{(a / total * 100):.1f}%" if total > 0 else "0.0%"
-                render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{overdue_ncr_count:,}", "", rate, is_alt_color=(i % 4 >= 2), is_ncr=True, cat_id=cat)
+                ncr_closed_cnt = (ncr_master_view['Status'] == 'Closed').sum()
+                ncr_open_cnt = (ncr_master_view['Status'] == 'Open').sum()
+                rate = f"{(ncr_closed_cnt / len(ncr_master_view) * 100):.1f}%" if len(ncr_master_view) > 0 else "0.0%"
+                render_category_box(
+                    title, f"{len(ncr_master_view):,}", f"{ncr_closed_cnt:,}", 
+                    f"{ncr_open_cnt:,}", f"{overdue_ncr_count:,}", "", 
+                    rate, is_alt_color=(i % 4 >= 2), is_ncr=True, cat_id=cat
+                )
+                if st.button("🚨 Inspect NCR Executive Center", key=f"btn_nav_ncr_{cat}_{i}", use_container_width=True):
+                    st.session_state.current_view = "NCR"
+                    st.session_state.page_num = 1
+                    st.rerun()
             else:
                 rate = f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
-                render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", rate, is_alt_color=(i % 4 >= 2), is_ncr=False, cat_id=cat)
+                render_category_box(
+                    title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", 
+                    rate, is_alt_color=(i % 4 >= 2), is_ncr=False, cat_id=cat
+                )
+                if st.button(f"🔍 Drill Down: {cat} Register", key=f"btn_nav_{cat}_{i}", use_container_width=True):
+                    st.session_state.selected_category = cat
+                    st.session_state.current_view = "DRILLDOWN"
+                    st.session_state.page_num = 1
+                    st.rerun()
 
         with col2:
             if i + 1 < len(categories):
                 title, cat, is_ncr = categories[i+1]
-                a, b, c, d = get_cat_status_counts(cat, date_filtered_df)
+                a, b, c, d = fast_cat_counts(cat)
                 total = a + b + c + d
                 if is_ncr:
-                    rate = f"{(a / total * 100):.1f}%" if total > 0 else "0.0%"
-                    render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{overdue_ncr_count:,}", "", rate, is_alt_color=((i+1) % 4 >= 2), is_ncr=True, cat_id=cat)
+                    ncr_closed_cnt = (ncr_master_view['Status'] == 'Closed').sum()
+                    ncr_open_cnt = (ncr_master_view['Status'] == 'Open').sum()
+                    rate = f"{(ncr_closed_cnt / len(ncr_master_view) * 100):.1f}%" if len(ncr_master_view) > 0 else "0.0%"
+                    render_category_box(
+                        title, f"{len(ncr_master_view):,}", f"{ncr_closed_cnt:,}", 
+                        f"{ncr_open_cnt:,}", f"{overdue_ncr_count:,}", "", 
+                        rate, is_alt_color=((i+1) % 4 >= 2), is_ncr=True, cat_id=cat
+                    )
+                    if st.button("🚨 Inspect NCR Executive Center", key=f"btn_nav_ncr_{cat}_{i+1}", use_container_width=True):
+                        st.session_state.current_view = "NCR"
+                        st.session_state.page_num = 1
+                        st.rerun()
                 else:
                     rate = f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
-                    render_category_box(title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", rate, is_alt_color=((i+1) % 4 >= 2), is_ncr=False, cat_id=cat)
+                    render_category_box(
+                        title, f"{total:,}", f"{a:,}", f"{b:,}", f"{c:,}", f"{d:,}", 
+                        rate, is_alt_color=((i+1) % 4 >= 2), is_ncr=False, cat_id=cat
+                    )
+                    if st.button(f"🔍 Drill Down: {cat} Register", key=f"btn_nav_{cat}_{i+1}", use_container_width=True):
+                        st.session_state.selected_category = cat
+                        st.session_state.current_view = "DRILLDOWN"
+                        st.session_state.page_num = 1
+                        st.rerun()
 
     st.markdown("<hr>", unsafe_allow_html=True)
     section_title("📈 Performance Analytics & Proportional Status Distribution")
@@ -441,29 +494,34 @@ if st.session_state.current_view == "OVERVIEW":
         if len(cat_data) > 0:
             cat_totals = cat_data.groupby('Category')['Count'].transform('sum')
             cat_data['Percentage'] = (cat_data['Count'] / cat_totals) * 100
-            # Order categories logically
             cat_data['Category'] = pd.Categorical(cat_data['Category'], categories=valid_7_cats, ordered=True)
             cat_data = cat_data.sort_values('Category')
-            fig_bar = plot_100p_stacked_bar(cat_data, 'Category', 'Percentage', 'Status', "PROPORTIONAL QUALITY STATUS BY CATEGORY", status_color_map, height=350)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            fig_bar = plot_100p_stacked_bar(
+                cat_data, 'Category', 'Percentage', 'Status', 
+                "PROPORTIONAL QUALITY STATUS BY CATEGORY", status_color_map, height=350
+            )
+            st.plotly_chart(fig_bar, use_container_width=True, config=PLOTLY_CONFIG)
         else:
             st.info("No submittal records found for the selected timeframe.")
+            
     with chart_c2:
         overall_status = date_filtered_df['Status'].value_counts().reset_index()
         overall_status.columns = ['Status', 'Count']
         if len(overall_status) > 0:
             colors = [status_color_map.get(s, '#94A3B8') for s in overall_status['Status']]
-            fig_donut = plot_donut_chart(overall_status['Status'], overall_status['Count'], "OVERALL STATUS DISTRIBUTION", colors, height=350)
-            st.plotly_chart(fig_donut, use_container_width=True)
+            fig_donut = plot_donut_chart(
+                overall_status['Status'], overall_status['Count'], 
+                "OVERALL STATUS DISTRIBUTION", colors, height=350
+            )
+            st.plotly_chart(fig_donut, use_container_width=True, config=PLOTLY_CONFIG)
 
-    # Executive NCR Summary by Zone on First Page
+    # Executive NCR Summary by Zone
     st.markdown("<hr>", unsafe_allow_html=True)
     section_title("⚠️ Executive NCR Quality Summary by Zone")
-    st.markdown("<p style='color: #64748B; font-size: 0.85rem; margin-top: -6px;'>High-level status of non-conformances by project structural zone. For full details and CAPA actions, see the dedicated <a href='?nav=NCR' target='_self' style='color:#2563EB;font-weight:600;'>Client NCR Register</a>.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748B; font-size: 0.85rem; margin-top: -6px;'>High-level status of non-conformances by project structural zone. For full details and CAPA actions, explore the dedicated <a href='?category=NCR' target='_self' style='color:#2563EB;font-weight:600;'>NCR Executive Center</a>.</p>", unsafe_allow_html=True)
 
-    ncr_exec_df = get_ncr_master_data(df)
-    if len(ncr_exec_df) > 0:
-        exec_zone_sum = ncr_exec_df.groupby('Zone').agg(
+    if len(ncr_master_view) > 0:
+        exec_zone_sum = ncr_master_view.groupby('Zone').agg(
             Total_NCR=('Document No', 'count'),
             Open_NCR=('Status', lambda s: (s == 'Open').sum()),
             Closed_NCR=('Status', lambda s: (s == 'Closed').sum()),
@@ -472,7 +530,6 @@ if st.session_state.current_view == "OVERVIEW":
         exec_zone_sum['Resolution Rate'] = (exec_zone_sum['Closed_NCR'] / exec_zone_sum['Total_NCR'] * 100).round(1)
         exec_zone_sum = exec_zone_sum.sort_values(by=['Open_NCR', 'Total_NCR'], ascending=[False, False])
         
-        # Display side-by-side: table and mini bar chart
         ncr_sc1, ncr_sc2 = st.columns([1.35, 1.0])
         with ncr_sc1:
             st.dataframe(
@@ -489,15 +546,17 @@ if st.session_state.current_view == "OVERVIEW":
                 }
             )
         with ncr_sc2:
-            exec_zone_status = ncr_exec_df.groupby(['Zone', 'Status']).size().reset_index(name='Count')
+            exec_zone_status = ncr_master_view.groupby(['Zone', 'Status']).size().reset_index(name='Count')
             color_map = {'Open': '#EF4444', 'Closed': '#10B981'}
-            fig_exec_ncr = plot_grouped_bar_chart(exec_zone_status, 'Zone', 'Count', 'Status', "NCRs BY ZONE (OPEN VS CLOSED)", color_map, height=310)
-            st.plotly_chart(fig_exec_ncr, use_container_width=True)
+            fig_exec_ncr = plot_grouped_bar_chart(
+                exec_zone_status, 'Zone', 'Count', 'Status', 
+                "NCRs BY ZONE (OPEN VS CLOSED)", color_map, height=310
+            )
+            st.plotly_chart(fig_exec_ncr, use_container_width=True, config=PLOTLY_CONFIG)
 
-
-# -------------------------------------------------------------
-# VIEW 2: CATEGORY WISE (WITH INTERACTIVE POPUPS & CLEAN REGISTERS)
-# -------------------------------------------------------------
+# =============================================================================
+# VIEW 2: CATEGORY WISE DRILLDOWN
+# =============================================================================
 elif st.session_state.current_view == "DRILLDOWN":
     section_title("🔍 Category Wise Inspection & Submittal Analysis")
     st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 18px 0;'>Detailed breakdown by QA/QC category with status analysis, discipline distribution, and master document registers.</p>", unsafe_allow_html=True)
@@ -505,7 +564,10 @@ elif st.session_state.current_view == "DRILLDOWN":
     cat_options = ["WIR", "MIR", "MAR", "MST", "ITP", "SHD", "NCR"]
     top_c1, top_c2 = st.columns([3, 1])
     with top_c1:
-        selected_cat = st.selectbox("Select QA/QC Category to Inspect", cat_options, index=cat_options.index(st.session_state.selected_category) if st.session_state.selected_category in cat_options else 0)
+        selected_cat = st.selectbox(
+            "Select QA/QC Category to Inspect", cat_options, 
+            index=cat_options.index(st.session_state.selected_category) if st.session_state.selected_category in cat_options else 0
+        )
         st.session_state.selected_category = selected_cat
     with top_c2:
         st.write("")
@@ -516,17 +578,29 @@ elif st.session_state.current_view == "DRILLDOWN":
 
     cat = st.session_state.selected_category
     cat_df = date_filtered_df[date_filtered_df['Category'] == cat]
-    a, b, c, d = get_cat_status_counts(cat, date_filtered_df)
-    total = a + b + c + d
-    rate = f"{(a / total * 100):.1f}%" if cat == 'NCR' and total > 0 else f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
+    if cat == 'NCR':
+        closed_cnt = (cat_df['Status'] == 'Closed').sum()
+        open_cnt = (cat_df['Status'] == 'Open').sum()
+        total = closed_cnt + open_cnt
+        rate = f"{(closed_cnt / total * 100):.1f}%" if total > 0 else "0.0%"
+    else:
+        a = (cat_df['Status'] == 'A-Approved').sum()
+        b = (cat_df['Status'] == 'B-Approved with Comments').sum()
+        c = (cat_df['Status'] == 'C-Revise and Resubmit').sum()
+        d = (cat_df['Status'] == 'D-Rejected').sum()
+        total = a + b + c + d
+        rate = f"{((a + b) / total * 100):.1f}%" if total > 0 else "0.0%"
 
-    st.markdown(f"<div style='font-size: 0.85rem; color: #64748B; margin-bottom: 8px;'>💡 <em>Click any metric card below to pop out the filtered list and download the data:</em></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size: 0.85rem; color: #64748B; margin-bottom: 8px;'>💡 <em>Click any metric card below to pop out the filtered list and download CSV:</em></div>", unsafe_allow_html=True)
 
-    # Render Interactive Cards with Popup Buttons
     if cat == 'NCR':
         today_drill_dt = pd.Timestamp(datetime.date.today())
         open_ncr_drill = cat_df[cat_df['Status'] == 'Open']
-        overdue_drill_df = open_ncr_drill[(today_drill_dt - pd.to_datetime(open_ncr_drill['Date'])).dt.days >= 60] if len(open_ncr_drill) > 0 else cat_df.iloc[0:0]
+        if len(open_ncr_drill) > 0:
+            open_ncr_dates = pd.to_datetime(open_ncr_drill['Date'], errors='coerce')
+            overdue_drill_df = open_ncr_drill[(today_drill_dt - open_ncr_dates).dt.days >= 60]
+        else:
+            overdue_drill_df = cat_df.iloc[0:0]
         overdue_drill_cnt = len(overdue_drill_df)
 
         col_k1, col_k2, col_k3, col_k4, col_k5 = st.columns(5)
@@ -539,11 +613,11 @@ elif st.session_state.current_view == "DRILLDOWN":
             if st.button("🚨 View Overdue", key="btn_popup_overdue", use_container_width=True):
                 show_status_popup(cat, "Overdue NCRs (>60 Days)", overdue_drill_df)
         with col_k3:
-            st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #F59E0B;"><div class="detail-kpi-title">OPEN (ACTIVE)</div><div class="detail-kpi-value" style="color: #F59E0B;">{d:,}</div><div class="detail-kpi-sub">Requires action</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #F59E0B;"><div class="detail-kpi-title">OPEN (ACTIVE)</div><div class="detail-kpi-value" style="color: #F59E0B;">{open_cnt:,}</div><div class="detail-kpi-sub">Requires action</div></div>', unsafe_allow_html=True)
             if st.button("🔍 View Open NCRs", key="btn_popup_open", use_container_width=True):
                 show_status_popup(cat, "Open Issues", cat_df[cat_df['Status'] == 'Open'])
         with col_k4:
-            st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #10B981;"><div class="detail-kpi-title">CLOSED</div><div class="detail-kpi-value" style="color: #10B981;">{(a+b):,}</div><div class="detail-kpi-sub">Verified & Closed</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #10B981;"><div class="detail-kpi-title">CLOSED</div><div class="detail-kpi-value" style="color: #10B981;">{closed_cnt:,}</div><div class="detail-kpi-sub">Verified & Closed</div></div>', unsafe_allow_html=True)
             if st.button("🔍 View Closed", key="btn_popup_closed", use_container_width=True):
                 show_status_popup(cat, "Closed & Verified", cat_df[cat_df['Status'] == 'Closed'])
         with col_k5:
@@ -582,8 +656,11 @@ elif st.session_state.current_view == "DRILLDOWN":
         disc_status = cat_df.groupby(['Discipline', 'Status']).size().reset_index(name='Count')
         disc_totals = disc_status.groupby('Discipline')['Count'].transform('sum')
         disc_status['Percentage'] = (disc_status['Count'] / disc_totals) * 100
-        fig_detail = plot_100p_stacked_bar(disc_status, 'Discipline', 'Percentage', 'Status', f"{cat} PROPORTIONAL STATUS BY ENGINEERING DISCIPLINE", status_color_map, height=340)
-        st.plotly_chart(fig_detail, use_container_width=True)
+        fig_detail = plot_100p_stacked_bar(
+            disc_status, 'Discipline', 'Percentage', 'Status', 
+            f"{cat} PROPORTIONAL STATUS BY ENGINEERING DISCIPLINE", status_color_map, height=340
+        )
+        st.plotly_chart(fig_detail, use_container_width=True, config=PLOTLY_CONFIG)
 
         if cat == 'NCR':
             ncr_r1c1, ncr_r1c2 = st.columns(2)
@@ -593,7 +670,7 @@ elif st.session_state.current_view == "DRILLDOWN":
                 root_counts = root_counts.sort_values(by='Count', ascending=False)
                 root_counts['Cumulative %'] = (root_counts['Count'].cumsum() / root_counts['Count'].sum()) * 100
                 fig_pareto = plot_pareto_chart(root_counts, 'Root Cause', 'Count', 'Cumulative %', "PARETO ROOT CAUSE BREAKDOWN (80/20 RULE)")
-                st.plotly_chart(fig_pareto, use_container_width=True)
+                st.plotly_chart(fig_pareto, use_container_width=True, config=PLOTLY_CONFIG)
 
             with ncr_r1c2:
                 open_ncrs = cat_df[cat_df['Status'] == 'Open'].copy()
@@ -612,9 +689,9 @@ elif st.session_state.current_view == "DRILLDOWN":
                     bucket_counts['Aging Bucket'] = pd.Categorical(bucket_counts['Aging Bucket'], categories=bucket_order, ordered=True)
                     bucket_counts = bucket_counts.sort_values('Aging Bucket')
                     fig_aging = plot_bar_chart(bucket_counts, 'Aging Bucket', 'Count', "OPEN NCR AGING BUCKETS", color='#EF4444', height=350)
-                    st.plotly_chart(fig_aging, use_container_width=True)
+                    st.plotly_chart(fig_aging, use_container_width=True, config=PLOTLY_CONFIG)
                 else:
-                    st.info("No open NCRs to calculate aging distribution.")
+                    st.info("No open NCRs found to calculate aging distribution.")
 
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown(f"#### 📑 Detailed {cat} Document Register")
@@ -625,21 +702,29 @@ elif st.session_state.current_view == "DRILLDOWN":
         st.write("")
         st.write("")
         csv = cat_df.to_csv(index=False).encode('utf-8')
-        st.download_button(label=f"⬇️ Export {cat} CSV", data=csv, file_name=f"{cat}_Data_{st.session_state.start_date}_to_{st.session_state.end_date}.csv", mime="text/csv", use_container_width=True)
+        st.download_button(
+            label=f"⬇️ Export {cat} CSV", 
+            data=csv, 
+            file_name=f"{cat}_Data_{st.session_state.start_date}_to_{st.session_state.end_date}.csv", 
+            mime="text/csv", 
+            use_container_width=True
+        )
 
-    # Standard clean display columns: exclude messy Unnamed / foreign headers
     clean_preferred = ['Reference No', 'Description', 'Status', 'Date', 'Area', 'Discipline', 'Contractor', 'Revision']
     table_cols = [c for c in clean_preferred if c in cat_df.columns]
     if not table_cols:
-        table_cols = [c for c in cat_df.columns if not str(c).startswith('Unnamed') and 'Learning Event' not in str(c) and 'Training' not in str(c)]
+        table_cols = [c for c in cat_df.columns if not str(c).startswith('Unnamed')]
     
     display_df = cat_df[table_cols].copy()
     if search_query:
         ref_col = 'Reference No' if 'Reference No' in display_df.columns else display_df.columns[0]
         desc_col = 'Description' if 'Description' in display_df.columns else (display_df.columns[1] if len(display_df.columns) > 1 else ref_col)
-        display_df = display_df[display_df[ref_col].astype(str).str.contains(search_query, case=False, na=False) | display_df[desc_col].astype(str).str.contains(search_query, case=False, na=False)]
+        display_df = display_df[
+            display_df[ref_col].astype(str).str.contains(search_query, case=False, na=False) | 
+            display_df[desc_col].astype(str).str.contains(search_query, case=False, na=False)
+        ]
 
-    items_per_page = 12
+    items_per_page = 15
     total_items = len(display_df)
     total_pages = math.ceil(total_items / items_per_page) if total_items > 0 else 1
     if st.session_state.page_num > total_pages:
@@ -660,17 +745,15 @@ elif st.session_state.current_view == "DRILLDOWN":
             st.session_state.page_num += 1
             st.rerun()
 
-# -------------------------------------------------------------
-# VIEW 3: DEDICATED NCR MANAGEMENT PAGE
-# -------------------------------------------------------------
+# =============================================================================
+# VIEW 3: DEDICATED NCR MANAGEMENT CENTER
+# =============================================================================
 elif st.session_state.current_view == "NCR":
     section_title("⚠️ Non-Conformance Reports (NCR) Executive Center")
     st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 18px 0;'>Live synchronization across open NCR tracker slides and cumulative Aconex master registers.</p>", unsafe_allow_html=True)
 
-    # Reconcile NCR master data
-    ncr_master = get_ncr_master_data(df)
+    ncr_master = st.session_state.ncr_master_view
 
-    # Key Metrics
     tot_ncrs = len(ncr_master)
     overdue_ncrs = ncr_master[ncr_master['Aging Category'] == 'Overdue (> 2 Months)']
     active_ncrs = ncr_master[ncr_master['Aging Category'] == 'Active (< 2 Months)']
@@ -679,10 +762,8 @@ elif st.session_state.current_view == "NCR":
     overdue_count = len(overdue_ncrs)
     active_count = len(active_ncrs)
     closed_count = len(closed_ncrs)
-    open_total = overdue_count + active_count
     closure_rate = (closed_count / tot_ncrs * 100) if tot_ncrs > 0 else 0
 
-    # Metric KPI Row
     nk1, nk2, nk3, nk4, nk5 = st.columns(5)
     with nk1:
         st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #2563EB;"><div class="detail-kpi-title">TOTAL NCRs RAISED</div><div class="detail-kpi-value" style="color: #2563EB;">{tot_ncrs:,}</div><div class="detail-kpi-sub">Cumulative Master Log</div></div>', unsafe_allow_html=True)
@@ -732,12 +813,11 @@ elif st.session_state.current_view == "NCR":
                 df_disp['Current Status'].str.contains(q, case=False, na=False)
             ]
 
-        # Order columns to strictly follow the PPT format with Zone intelligence
-        ppt_display_cols = [
+        ncr_display_cols = [
             'Document No', 'Zone', 'Discipline', 'Description', 'Corrective Action', 
             'Issue Date', 'Days Open', 'Current Status', 'Origin'
         ]
-        cols_present = [c for c in ppt_display_cols if c in df_disp.columns]
+        cols_present = [c for c in ncr_display_cols if c in df_disp.columns]
         
         st.dataframe(
             df_disp[cols_present],
@@ -755,7 +835,6 @@ elif st.session_state.current_view == "NCR":
             }
         )
 
-    # Sub-tabs with Zone Analytics Dashboard and PPT-aligned views
     tab_zone, tab_overdue, tab_active, tab_closed, tab_master = st.tabs([
         "🗺️ NCR Zone Analytics Dashboard",
         f"🚨 Overdue NCRs (> 2 Months) [{overdue_count}]",
@@ -764,12 +843,10 @@ elif st.session_state.current_view == "NCR":
         f"📋 Full Cumulative Master Register [{tot_ncrs}]"
     ])
 
-    # ── TAB: ZONE ANALYTICS DASHBOARD ─────────────────────────
     with tab_zone:
         st.markdown("##### 🗺️ Geographic & Zone-Wise Quality Conformance Analytics")
         st.markdown("<p style='color: #64748B; font-size: 0.82rem; margin-top: -6px;'>Identify location hotspots, pending corrective actions, and closure rates by Opera House structural zone.</p>", unsafe_allow_html=True)
         
-        # Zone overview summary cards
         zone_summary = ncr_master.groupby('Zone').agg(
             Total_NCR=('Document No', 'count'),
             Open_NCR=('Status', lambda s: (s == 'Open').sum()),
@@ -780,7 +857,6 @@ elif st.session_state.current_view == "NCR":
         zone_summary['Closure_Rate'] = (zone_summary['Closed_NCR'] / zone_summary['Total_NCR'] * 100).round(1)
         zone_summary = zone_summary.sort_values(by=['Open_NCR', 'Total_NCR'], ascending=[False, False])
         
-        # Primary Zone Matrix Table: Rows = Zones, Columns = Total NCR, Open, Closed
         st.markdown("###### 📊 Structural Zone Non-Conformance Summary Matrix")
         st.dataframe(
             zone_summary,
@@ -788,16 +864,15 @@ elif st.session_state.current_view == "NCR":
             hide_index=True,
             column_config={
                 "Zone": st.column_config.TextColumn("Zone / Area (Row)", width="medium"),
-                "Total_NCR": st.column_config.NumberColumn("Total NCR", format="%d", help="Total non-conformances logged for this zone"),
-                "Open_NCR": st.column_config.NumberColumn("Open NCR", format="%d", help="Active non-conformances pending rectification"),
-                "Closed_NCR": st.column_config.NumberColumn("Closed NCR", format="%d", help="Resolved non-conformances verified by consultant"),
-                "Overdue_NCR": st.column_config.NumberColumn("Overdue (>60d)", format="%d", help="NCRs open more than 60 days"),
+                "Total_NCR": st.column_config.NumberColumn("Total NCR", format="%d"),
+                "Open_NCR": st.column_config.NumberColumn("Open NCR", format="%d"),
+                "Closed_NCR": st.column_config.NumberColumn("Closed NCR", format="%d"),
+                "Overdue_NCR": st.column_config.NumberColumn("Overdue (>60d)", format="%d"),
                 "Closure_Rate": st.column_config.ProgressColumn("Closure Rate", min_value=0, max_value=100, format="%.1f%%")
             }
         )
         
         st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
-
         st.markdown("##### 📍 Interactive Zone Inspector & Breakdown Table")
         
         selected_zone_filter = st.selectbox(
@@ -814,10 +889,10 @@ elif st.session_state.current_view == "NCR":
         with z_k1:
             st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #2563EB;"><div class="detail-kpi-title">TOTAL IN {selected_zone_filter.upper()}</div><div class="detail-kpi-value" style="color: #2563EB;">{len(filtered_zone_ncr):,}</div><div class="detail-kpi-sub">Total Submittals</div></div>', unsafe_allow_html=True)
         with z_k2:
-            z_open = len(filtered_zone_ncr[filtered_zone_ncr['Status'] == 'Open'])
+            z_open = (filtered_zone_ncr['Status'] == 'Open').sum()
             st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #EF4444;"><div class="detail-kpi-title">ACTIVE OPEN</div><div class="detail-kpi-value" style="color: #EF4444;">{z_open:,}</div><div class="detail-kpi-sub">Pending Rectification</div></div>', unsafe_allow_html=True)
         with z_k3:
-            z_closed = len(filtered_zone_ncr[filtered_zone_ncr['Status'] == 'Closed'])
+            z_closed = (filtered_zone_ncr['Status'] == 'Closed').sum()
             st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #10B981;"><div class="detail-kpi-title">CLOSED & RESOLVED</div><div class="detail-kpi-value" style="color: #10B981;">{z_closed:,}</div><div class="detail-kpi-sub">Consultant Verified</div></div>', unsafe_allow_html=True)
         with z_k4:
             z_rate = (z_closed / len(filtered_zone_ncr) * 100) if len(filtered_zone_ncr) > 0 else 0
@@ -828,7 +903,7 @@ elif st.session_state.current_view == "NCR":
 
     with tab_overdue:
         st.markdown("##### 🚨 Critical Action Items: Non-Conformances Open More Than 60 Days")
-        st.markdown("<p style='color: #991B1B; font-size: 0.8rem; margin-top: -6px;'>These non-conformances have exceeded the 2-month threshold and require high-priority closeout meetings.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #991B1B; font-size: 0.8rem; margin-top: -6px;'>These non-conformances have exceeded the 2-month threshold and require priority resolution meetings.</p>", unsafe_allow_html=True)
         render_ncr_table_with_export(overdue_ncrs, "Overdue NCRs", "Overdue_NCRs_Report")
 
     with tab_active:
@@ -846,21 +921,21 @@ elif st.session_state.current_view == "NCR":
         st.markdown("<p style='color: #475569; font-size: 0.8rem; margin-top: -6px;'>Complete register of Client / Consultant (BV-BSW-105-0000-SOA-NCR-QL) non-conformances synchronized from master logs and slide updates.</p>", unsafe_allow_html=True)
         render_ncr_table_with_export(ncr_master, "All NCRs", "Client_NCR_Master_Register")
 
-# -------------------------------------------------------------
-# VIEW: DEDICATED CONCRETE PLACEMENT & DEFECTS PAGE
-# -------------------------------------------------------------
+# =============================================================================
+# VIEW 4: STRUCTURAL CONCRETE CENTER
+# =============================================================================
 elif st.session_state.current_view == "CONCRETE":
     section_title("🏗️ Structural Concrete Placement & Quality Control Center")
     st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 18px 0;'>Production volumes, pouring progression by element and zone, and post-pour defect resolution logs.</p>", unsafe_allow_html=True)
 
     if concrete_df is not None and len(concrete_df) > 0:
-        c_df = concrete_df[(pd.to_datetime(concrete_df['Date']).dt.date >= st.session_state.start_date) & (pd.to_datetime(concrete_df['Date']).dt.date <= st.session_state.end_date)].copy()
+        c_dates = pd.to_datetime(concrete_df['Date'], errors='coerce').dt.date
+        c_df = concrete_df[(c_dates >= st.session_state.start_date) & (c_dates <= st.session_state.end_date)].copy()
         total_poured = c_df['Volume'].sum() if len(c_df) > 0 else 0
         pours_count = len(c_df)
         avg_pour = total_poured / pours_count if pours_count > 0 else 0
         unique_zones = c_df['Zone'].nunique() if len(c_df) > 0 else 0
 
-        # KPI metric cards row
         ck1, ck2, ck3, ck4 = st.columns(4)
         with ck1:
             st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #0D9488;"><div class="detail-kpi-title">TOTAL VOLUME CAST</div><div class="detail-kpi-value" style="color: #0F766E;">{total_poured:,.1f} <span style="font-size:1rem;">m³</span></div><div class="detail-kpi-sub">Filtered timeframe volume</div></div>', unsafe_allow_html=True)
@@ -888,12 +963,12 @@ elif st.session_state.current_view == "CONCRETE":
                 with conc_c1:
                     zone_el = c_df.groupby(['Zone', 'Element'])['Volume'].sum().reset_index()
                     fig_c1 = plot_grouped_bar_chart(zone_el, 'Zone', 'Volume', 'Element', "CONCRETE PLACEMENT BY ZONE & ELEMENT (m³)", color_map, height=360)
-                    st.plotly_chart(fig_c1, use_container_width=True)
+                    st.plotly_chart(fig_c1, use_container_width=True, config=PLOTLY_CONFIG)
                 with conc_c2:
                     month_el = c_df.groupby(['Month_Sort', 'Month', 'Element'])['Volume'].sum().reset_index()
                     month_el = month_el.sort_values('Month_Sort')
                     fig_c2 = plot_grouped_bar_chart(month_el, 'Month', 'Volume', 'Element', "MONTHLY POURING PROGRESSION (m³)", color_map, height=360)
-                    st.plotly_chart(fig_c2, use_container_width=True)
+                    st.plotly_chart(fig_c2, use_container_width=True, config=PLOTLY_CONFIG)
 
                 st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
                 st.markdown("###### 📊 Structural Zone Concrete Production Summary")
@@ -945,7 +1020,7 @@ elif st.session_state.current_view == "CONCRETE":
                 ppc1, ppc2 = st.columns([1.4, 1.0])
                 with ppc1:
                     fig_post_pour = plot_post_pour_status(post_pour_df, height=340)
-                    st.plotly_chart(fig_post_pour, use_container_width=True)
+                    st.plotly_chart(fig_post_pour, use_container_width=True, config=PLOTLY_CONFIG)
                 with ppc2:
                     st.markdown("###### Post-Pour Status Summary")
                     pp_sum = post_pour_df.groupby('Status').size().reset_index(name='Count')
@@ -956,9 +1031,9 @@ elif st.session_state.current_view == "CONCRETE":
     else:
         st.info("No structural concrete placement data available in current logs.")
 
-# -------------------------------------------------------------
-# VIEW 4: QUALITY TRAINING & TOOLBOX TALKS (TBT)
-# -------------------------------------------------------------
+# =============================================================================
+# VIEW 5: QUALITY TRAINING & TOOLBOX TALKS (TBT)
+# =============================================================================
 elif st.session_state.current_view == "TRAINING":
     section_title("🎓 ECM JV Quality Training & Toolbox Talks (TBT) Register")
     st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 18px 0;'>Annual Training Schedule & Competency Tracking for Royal Diriyah Opera House (CSC & Contractor).</p>", unsafe_allow_html=True)
@@ -968,12 +1043,10 @@ elif st.session_state.current_view == "TRAINING":
     total_func = len(df_func)
     total_sessions = total_qms + total_func
 
-    # Upcoming scheduled count
     upcoming_qms = len(df_qms[df_qms['Schedule Status'] == 'Upcoming Scheduled']) if 'Schedule Status' in df_qms.columns else 0
     upcoming_func = len(df_func[df_func['Schedule Status'] == 'Upcoming Scheduled']) if 'Schedule Status' in df_func.columns else 0
     total_upcoming = upcoming_qms + upcoming_func
 
-    # Summary KPIs
     tk1, tk2, tk3, tk4 = st.columns(4)
     with tk1:
         st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #2563EB;"><div class="detail-kpi-title">TOTAL SESSIONS LOGGED</div><div class="detail-kpi-value" style="color: #2563EB;">{total_sessions:,}</div><div class="detail-kpi-sub">QMS + Site Functional TBTs</div></div>', unsafe_allow_html=True)
@@ -984,17 +1057,16 @@ elif st.session_state.current_view == "TRAINING":
     with tk4:
         st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #6366F1;"><div class="detail-kpi-title">FUNCTIONAL & TBT SESSIONS</div><div class="detail-kpi-value" style="color: #6366F1;">{total_func:,}</div><div class="detail-kpi-sub">Tradesmen & Site Supervisors</div></div>', unsafe_allow_html=True)
 
-    # Next Schedule Spotlight Banner
     combined_train = pd.concat([df_qms, df_func], ignore_index=True) if len(df_qms) > 0 or len(df_func) > 0 else pd.DataFrame()
     if len(combined_train) > 0 and 'Schedule Status' in combined_train.columns:
         upcoming_items = combined_train[combined_train['Schedule Status'] == 'Upcoming Scheduled']
         if len(upcoming_items) > 0:
             st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
             banner_html = f"""
-            <div style="background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 1.5px solid #FCD34D; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.08);">
+            <div style="background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 1.5px solid #FCD34D; border-radius: 12px; padding: 14px 18px; margin-bottom: 18px; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.08);">
                 <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 1.4rem;">📅</span>
+                        <span style="font-size: 1.3rem;">📅</span>
                         <div>
                             <div style="font-size: 0.95rem; font-weight: 800; color: #92400E;">UPCOMING TRAINING SCHEDULE SPOTLIGHT ({len(upcoming_items)} Sessions Scheduled)</div>
                             <div style="font-size: 0.8rem; color: #B45309;">Track next planned delivery dates and ensure site readiness before execution.</div>
@@ -1015,7 +1087,7 @@ elif st.session_state.current_view == "TRAINING":
 
     with tab_func:
         st.markdown("##### 🛠️ Site Functional Trainings & Trade Toolbox Talks")
-        st.markdown("<p style='color: #64748B; font-size: 0.8rem; margin-top: -6px;'>Hands-on technical workshops covering waterproofing, rebar mechanical couplers, post-installed chemical anchors, SF3 architectural finish, and formwork safety.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #64748B; font-size: 0.8rem; margin-top: -6px;'>Technical workshops covering waterproofing, rebar couplers, chemical anchors, SF3 architectural finish, and formwork safety.</p>", unsafe_allow_html=True)
         if len(df_func) > 0:
             tc1, tc2, tc3 = st.columns([2.5, 1.2, 1.3])
             with tc1:
@@ -1041,7 +1113,6 @@ elif st.session_state.current_view == "TRAINING":
             elif status_filter_f == "Fully Completed Only":
                 disp_f = disp_f[disp_f['Schedule Status'] == 'Fully Completed']
 
-            # Column ordering with Next Schedule front and center
             cols_order = [c for c in ['S.N.', 'Topic / Target Group', 'Next Schedule', 'Schedule Status', 'Total Staff', 'Total Plan', 'Total Conducted', '% Conducted'] if c in disp_f.columns]
             st.dataframe(disp_f[cols_order], use_container_width=True, hide_index=True)
         else:
@@ -1079,9 +1150,9 @@ elif st.session_state.current_view == "TRAINING":
         else:
             st.info("QMS training schedule log not found.")
 
-# -------------------------------------------------------------
-# VIEW 5: LESSONS LEARNED (GRAPHIC DESIGNED SHOWCASE)
-# -------------------------------------------------------------
+# =============================================================================
+# VIEW 6: LESSONS LEARNED & BEST PRACTICES
+# =============================================================================
 elif st.session_state.current_view == "LESSONS":
     section_title("💡 Lessons Learned & Best Practices")
     st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 18px 0;'>Executive Engineering Knowledge Base & Standardized Site Controls (Project: DD-2023-329).</p>", unsafe_allow_html=True)
@@ -1090,7 +1161,6 @@ elif st.session_state.current_view == "LESSONS":
     total_ll = len(df_ll)
     total_bp = len(df_bp)
 
-    # Summary KPIs
     lk1, lk2, lk3, lk4 = st.columns(4)
     with lk1:
         st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #EF4444;"><div class="detail-kpi-title">CONSOLIDATED LESSONS LEARNED</div><div class="detail-kpi-value" style="color: #EF4444;">{total_ll:,}</div><div class="detail-kpi-sub">Systemic root causes analyzed</div></div>', unsafe_allow_html=True)
@@ -1099,7 +1169,7 @@ elif st.session_state.current_view == "LESSONS":
     with lk3:
         st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #2563EB;"><div class="detail-kpi-title">GOVERNANCE STANDARD</div><div class="detail-kpi-value" style="font-size: 1.25rem; color: #2563EB;">DGDA QA/QC</div><div class="detail-kpi-sub">Master Specifications Compliant</div></div>', unsafe_allow_html=True)
     with lk4:
-        st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #6366F1;"><div class="detail-kpi-title">KEY DISCIPLINES</div><div class="detail-kpi-value" style="font-size: 1.25rem; color: #6366F1;">Civil • Arch • MEP</div><div class="detail-kpi-sub">Multi-discipline integration</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #6366F1;"><div class="detail-kpi-title">KEY DISCIPLINES</div><div class="detail-kpi-value" style="font-size: 1.25rem; color: #6366F1;">Civil &bull; Arch &bull; MEP</div><div class="detail-kpi-sub">Multi-discipline integration</div></div>', unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
 
@@ -1132,7 +1202,6 @@ elif st.session_state.current_view == "LESSONS":
             if selected_disc != "All Disciplines":
                 disp_ll = disp_ll[disp_ll['Discipline / Domain'] == selected_disc]
 
-            # Download button
             st.download_button(
                 label=f"⬇️ Download Lessons Learned CSV ({len(disp_ll)} items)",
                 data=disp_ll.to_csv(index=False).encode('utf-8'),
@@ -1193,9 +1262,9 @@ elif st.session_state.current_view == "LESSONS":
         else:
             st.info("Best Practices register not found.")
 
-# -------------------------------------------------------------
-# VIEW 6: MONTHLY QUALITY STATUS REPORT
-# -------------------------------------------------------------
+# =============================================================================
+# VIEW 7: MONTHLY QUALITY STATUS REPORT EXTRACT
+# =============================================================================
 elif st.session_state.current_view == "MONTHLY":
     section_title("📅 Monthly Quality Status Report — Master Register Extract")
     st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 20px 0;'>Aggregated quality performance indicators extracted from cumulative master logs.</p>", unsafe_allow_html=True)
@@ -1266,9 +1335,9 @@ elif st.session_state.current_view == "MONTHLY":
     })
     st.dataframe(pd.DataFrame(insp_data), use_container_width=True, hide_index=True)
 
-# -------------------------------------------------------------
-# VIEW 7: USER MANAGEMENT & ACCESS AUDIT (ADMIN ONLY)
-# -------------------------------------------------------------
+# =============================================================================
+# VIEW 8: USER MANAGEMENT & ACCESS AUDIT (ADMIN ONLY)
+# =============================================================================
 elif st.session_state.current_view == "ADMIN":
     current_role = st.session_state.get("user_info", {}).get("role", "viewer")
     if current_role != "admin":
@@ -1327,7 +1396,6 @@ elif st.session_state.current_view == "ADMIN":
             st.markdown("#### 📊 Project Team Access Analytics")
             user_counts, daily_counts, monthly_counts, recent_logs = get_access_stats()
 
-            # KPI Summary Cards
             tot_logins = int(user_counts['total_logins'].sum()) if not user_counts.empty else 0
             unique_users = len(user_counts) if not user_counts.empty else 0
             active_today = len(daily_counts[daily_counts['access_date'] == datetime.date.today().isoformat()]) if not daily_counts.empty else 0
@@ -1367,7 +1435,7 @@ elif st.session_state.current_view == "ADMIN":
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.markdown("""
 <div style='display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #94A3B8;'>
-    <div>Royal Diriyah Opera House &nbsp;|&nbsp; QA/QC Digital Platform</div>
+    <div>Royal Diriyah Opera House &nbsp;|&nbsp; QA/QC Digital Platform &bull; ECM-JV</div>
     <div>Status Legend: &nbsp; 🟢 Code A (Pass) &nbsp;|&nbsp; 🔵 Code B (Comments) &nbsp;|&nbsp; 🟡 Code C (Revise) &nbsp;|&nbsp; 🔴 Code D / NCR (Rejected)</div>
 </div>
 """, unsafe_allow_html=True)

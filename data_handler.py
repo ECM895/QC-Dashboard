@@ -1,110 +1,215 @@
 import os
+import re
+import datetime
 import pandas as pd
 import numpy as np
 import streamlit as st
-import datetime
-import glob
 
-LOGS_DIR = "/Users/uzairahmad/Desktop/Logs"
+# Pre-compiled regular expressions for high-throughput parsing
+RE_NCR_DOC = re.compile(r'SOA-NCR-QL-\d+|ECM-NCR-QL-\d+|NCR-QL-\d+|NCR-\d+', re.IGNORECASE)
+RE_NCR_FULL = re.compile(r'[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-NCR-[A-Z0-9]+-\d+')
+RE_ZONE_SEARCH = re.compile(r'\b(?:Zone|Z)\s*[-_:]?\s*([A-Za-z0-9]+(?:[- ][A-Za-z0-9]+)?)', re.IGNORECASE)
+RE_ZONE_CLEAN = re.compile(r'\s+(WAS|EXEC|FOR|IN|AT|OF|WALL|RET|COL|MOCK)\b.*')
+RE_DIGIT_START = re.compile(r'^([0-9]+)[-_ ]')
+RE_CHAR_DIGIT = re.compile(r'^[A-Z]\s+([0-9]+)')
+
+# Safe search directories within the project workspace
+SEARCH_DIRS = ["auto_logs", "logs", ".temp_uploads", "."]
 
 def _generate_empty_data():
-    """Generates an empty dataframe with correct columns to display 0s."""
+    """Generates an empty dataframe with correct schema for empty states."""
     df = pd.DataFrame(columns=[
         'Date', 'Category', 'Reference No', 'Description', 
-        'Status', 'Area', 'Contractor', 'Discipline'
+        'Status', 'Area', 'Contractor', 'Discipline', 'Root Cause'
     ])
     calibration_data = pd.DataFrame(columns=[
         'Equipment', 'Last Calibrated', 'Expiry Date', 'Status'
     ])
-    return df, calibration_data
+    concrete_data = pd.DataFrame(columns=[
+        'Zone', 'Date', 'Element', 'Volume'
+    ])
+    return df, calibration_data, concrete_data
+
+def normalize_zone(text, doc=''):
+    """Extracts and normalizes project structural zone from description or document reference."""
+    full_text = f"{text or ''} {doc or ''}"
+    m = RE_ZONE_SEARCH.search(full_text)
+    if m:
+        z = m.group(1).strip().upper()
+        z = RE_ZONE_CLEAN.sub('', z)
+        if z.isdigit():
+            return f"Zone {int(z)}"
+        m_dig = RE_DIGIT_START.match(z)
+        if m_dig:
+            return f"Zone {int(m_dig.group(1))}"
+        m_s = RE_CHAR_DIGIT.match(z)
+        if m_s:
+            return f"Zone {int(m_s.group(1))}"
+        return f"Zone {z}"
+    return "Site-wide / General"
+
+def extract_discipline(text):
+    """Identifies engineering discipline code from document text."""
+    t = str(text or '').upper()
+    if ' CE ' in t or '-CE-' in t or 'CIVIL' in t or 'CONCRETE' in t: return 'Civil (CE)'
+    if ' AR ' in t or '-AR-' in t or 'ARCH' in t: return 'Arch (AR)'
+    if ' EL ' in t or '-EL-' in t or 'ELEC' in t: return 'Electrical (EL)'
+    if ' ME ' in t or '-ME-' in t or 'MECH' in t or 'HVAC' in t: return 'Mechanical (ME)'
+    if ' ST ' in t or '-ST-' in t or 'STEEL' in t: return 'Struc Steel (ST)'
+    return 'Other'
+
+def extract_root_cause(category, description):
+    """Categorizes root cause for NCR non-conformance tracking."""
+    if category != 'NCR': return 'N/A'
+    t = str(description or '').lower()
+    if any(x in t for x in ['concrete', 'compressive', 'strength', 'cube', 'slump', 'pour']):
+        return 'Concrete Strength / Mix'
+    if any(x in t for x in ['rebar', 'formwork', 'alignment', 'cover', 'spacing', 'tie']):
+        return 'Formwork / Rebar Alignment'
+    if any(x in t for x in ['material', 'spec', 'approved', 'submittal', 'delivery', 'sample']):
+        return 'Material Non-Compliance'
+    if any(x in t for x in ['workmanship', 'finish', 'crack', 'honeycomb', 'damage', 'cold joint']):
+        return 'Workmanship / Finish'
+    if any(x in t for x in ['design', 'drawing', 'clash', 'dimension', 'elevation']):
+        return 'Design & Drawing Clash'
+    return 'Other / Unclassified'
+
+@st.cache_data(show_spinner=False)
+def parse_ncr_ppt(ppt_path_or_bytes):
+    """Parses open NCR status tables from PowerPoint slide decks with caching."""
+    import pptx
+    prs = pptx.Presentation(ppt_path_or_bytes)
+    ppt_ncrs = {}
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_table:
+                table = shape.table
+                for row_idx in range(1, len(table.rows)):
+                    c = [cell.text.strip().replace('\n', ' ') for cell in table.rows[row_idx].cells]
+                    if len(c) < 7: continue
+                    raw_doc = c[1].replace('\x0b', ' ').strip()
+                    found = RE_NCR_DOC.findall(raw_doc)
+                    key = found[0] if found else raw_doc
+                    
+                    area = ''
+                    if '(' in raw_doc and ')' in raw_doc:
+                        area = raw_doc[raw_doc.find('(')+1:raw_doc.find(')')]
+                    
+                    ppt_ncrs[key] = {
+                        'Sr': c[0],
+                        'DocRaw': raw_doc,
+                        'Description': c[2],
+                        'CAPA': c[3],
+                        'IssueDate': c[4],
+                        'DaysPassed': c[5],
+                        'CurrentStatus': c[6],
+                        'Area': area
+                    }
+    return ppt_ncrs
+
+def find_latest_ncr_ppt():
+    """Locates the latest active NCR PowerPoint presentation in workspace folders."""
+    for search_dir in SEARCH_DIRS:
+        if os.path.exists(search_dir):
+            for fn in os.listdir(search_dir):
+                if fn.startswith("~$") or fn.startswith("."): continue
+                if fn.endswith('.pptx') and ('ncr' in fn.lower() or 'open' in fn.lower()):
+                    full_p = os.path.join(search_dir, fn)
+                    if os.path.isfile(full_p):
+                        return full_p
+    return None
 
 def process_uploaded_logs(_uploaded_files=None):
-    """Reads Excel files from Streamlit uploader. If none exist, returns empty data."""
+    """
+    High-performance ingestion engine for Aconex master registers and auxiliary logs.
+    Reads Excel files using the ultra-fast Rust-based calamine engine.
+    """
     is_mock = False
     dfs = []
     
     if _uploaded_files and len(_uploaded_files) > 0:
-        # Exclude auxiliary trackers (Training, Lessons Learned, Concrete/Cast Insitu, Calibration, Templates)
-        # so they do not pollute the Aconex master document register columns
-        aux_keywords = ['learning event', 'training schedule', 'lessons_learned', 'best_practices', 'cast insitu', 'daily productivity', 'calibration_tracker', 'template_logs']
+        aux_keywords = [
+            'learning event', 'training schedule', 'lessons_learned', 
+            'best_practices', 'cast insitu', 'daily productivity', 
+            'calibration_tracker', 'template_logs'
+        ]
         log_files = [
             f for f in _uploaded_files 
-            if not any(k in f.name.lower() for k in aux_keywords)
+            if not any(k in getattr(f, 'name', '').lower() for k in aux_keywords)
         ]
         
         for file in log_files:
             try:
                 import io
-                # Read all bytes into memory so we can re-read the stream multiple times
-                file_bytes = io.BytesIO(file.read())
+                # Support both file paths and Streamlit UploadedFile objects
+                file_path = getattr(file, 'path', None)
+                if file_path and os.path.exists(file_path):
+                    temp_df = pd.read_excel(file_path, engine='calamine')
+                else:
+                    file_bytes = io.BytesIO(file.read())
+                    temp_df = pd.read_excel(file_bytes, engine='calamine')
                 
-                temp_df = pd.read_excel(file_bytes, engine='calamine')
-                
-                # Auto-detect Custom NCR Log format
+                # Check for Custom NCR Log Format
                 if len(temp_df.columns) > 0 and "NON-CONFORMANCE REPORT" in str(temp_df.columns[0]):
-                    # Dynamically find the header row to prevent offset crashes
                     header_idx = 15
-                    for i, row in enumerate(temp_df.values):
-                        if 'NCR  Document No' in str(row) or 'Sr.No' in str(row[0]):
+                    for i, row in enumerate(temp_df.values[:25]):
+                        row_s = str(row)
+                        if 'NCR  Document No' in row_s or 'Sr.No' in str(row[0]):
                             header_idx = i + 1
                             break
-                            
-                    file_bytes.seek(0)
-                    temp_df = pd.read_excel(file_bytes, skiprows=header_idx, engine='calamine')
                     
-                    # Map NCR Log Columns to Dashboard Columns based on requested letters (B, J, L, R, S, U)
+                    if file_path and os.path.exists(file_path):
+                        temp_df = pd.read_excel(file_path, skiprows=header_idx, engine='calamine')
+                    else:
+                        file_bytes.seek(0)
+                        temp_df = pd.read_excel(file_bytes, skiprows=header_idx, engine='calamine')
+                    
                     col_map = {}
                     for c in temp_df.columns:
-                        col_name = str(c).strip()
-                        if 'NCR  Document No' in col_name: col_map[c] = 'Reference No' # Column B
-                        elif 'Location' in col_name: col_map[c] = 'Area'               # Column J
-                        elif 'NCR Description' in col_name: col_map[c] = 'Description' # Column L
-                        elif 'Date Responsed' in col_name: col_map[c] = 'Date'         # Column R
-                        elif 'Current Status' in col_name: col_map[c] = 'Status'       # Column U
+                        cn = str(c).strip()
+                        if 'NCR  Document No' in cn: col_map[c] = 'Reference No'
+                        elif 'Location' in cn: col_map[c] = 'Area'
+                        elif 'NCR Description' in cn: col_map[c] = 'Description'
+                        elif 'Date Responsed' in cn: col_map[c] = 'Date'
+                        elif 'Current Status' in cn: col_map[c] = 'Status'
                         
                     temp_df = temp_df.rename(columns=col_map)
                     temp_df['Category'] = 'NCR'
                     temp_df['Contractor'] = 'Main Contractor'
                     
-                    # Force NCR statuses to Open/Closed
                     if 'Status' in temp_df.columns:
                         temp_df = temp_df.dropna(subset=['Status'])
-                        def map_ncr_status(val):
-                            s = str(val).lower()
-                            if 'close' in s: return 'Closed'
-                            return 'Open'
-                        temp_df['Status'] = temp_df['Status'].apply(map_ncr_status)
+                        temp_df['Status'] = temp_df['Status'].apply(
+                            lambda v: 'Closed' if any(x in str(v).lower() for x in ['close', 'approv']) else 'Open'
+                        )
 
-                # Auto-detect Aconex Exports
+                # Check for Standard Aconex Exports
                 elif len(temp_df.columns) > 0 and "In case any cell is highlighted" in str(temp_df.columns[0]):
-                    
-                    # Extract Category from the first 10 rows (User specified Row 5)
                     detected_category = None
                     for _, row in temp_df.head(10).iterrows():
                         row_str = str(row.values).lower()
                         if "work inspection request" in row_str or "type: wir" in row_str: detected_category = "WIR"
                         elif "material inspection request" in row_str or "type: mir" in row_str: detected_category = "MIR"
                         elif "material approval" in row_str or "type: mar" in row_str: detected_category = "MAR"
-                        elif "method statement" in row_str or "method of statement" in row_str or "type: mst" in row_str: detected_category = "MST"
-                        elif "inspection and test plan" in row_str or "inspection & test plan" in row_str or "inspection test plan" in row_str or "type: itp" in row_str or "'itp'" in row_str: detected_category = "ITP"
+                        elif "method statement" in row_str or "type: mst" in row_str: detected_category = "MST"
+                        elif "inspection and test plan" in row_str or "type: itp" in row_str: detected_category = "ITP"
                         elif "shop drawing" in row_str or "type: shd" in row_str: detected_category = "SHD"
                         elif "non conformance" in row_str or "non-conformance" in row_str or "type: ncr" in row_str: detected_category = "NCR"
-                        if detected_category:
-                            break
+                        if detected_category: break
                             
-                    file_bytes.seek(0)
-                    temp_df = pd.read_excel(file_bytes, skiprows=10, engine='calamine')
+                    if file_path and os.path.exists(file_path):
+                        temp_df = pd.read_excel(file_path, skiprows=10, engine='calamine')
+                    else:
+                        file_bytes.seek(0)
+                        temp_df = pd.read_excel(file_bytes, skiprows=10, engine='calamine')
                     
-                    # Map Aconex Columns to Dashboard Columns
                     col_map = {}
                     if 'Revision Date' in temp_df.columns: col_map['Revision Date'] = 'Date'
                     if 'Document No' in temp_df.columns: col_map['Document No'] = 'Reference No'
                     if 'Title' in temp_df.columns: col_map['Title'] = 'Description'
                     if 'Discipline' in temp_df.columns: col_map['Discipline'] = 'Area'
-                    
                     temp_df = temp_df.rename(columns=col_map)
                     
-                    # Parse Category from the 'Type' column if present (Multi-Type Support)
                     if 'Type' in temp_df.columns:
                         def map_aconex_type(row):
                             doc_no = str(row.get('Reference No', '')).strip()
@@ -115,14 +220,12 @@ def process_uploaded_logs(_uploaded_files=None):
                             if 'method statement' in s: return 'MST'
                             if 'test plan' in s or 'itp' in s: return 'ITP'
                             if 'shop drawing' in s or 'shd' in s: return 'SHD'
-                            # Client Quality NCRs: Must start with or contain SOA-NCR-QL
                             if 'SOA-NCR-QL' in doc_no: return 'NCR'
                             if ('non conformance' in s or 'non-conformance' in s) and 'SOA-NCR-QL' in doc_no: return 'NCR'
                             return 'UNKNOWN'
                         temp_df['Category'] = temp_df.apply(map_aconex_type, axis=1)
                     else:
-                        # Fallback: Infer Category from filename or Row 5
-                        fname = file.name.upper()
+                        fname = getattr(file, 'name', '').upper()
                         if 'WIR' in fname: temp_df['Category'] = 'WIR'
                         elif 'MIR' in fname: temp_df['Category'] = 'MIR'
                         elif 'MAR' in fname: temp_df['Category'] = 'MAR'
@@ -133,9 +236,7 @@ def process_uploaded_logs(_uploaded_files=None):
                         elif detected_category: temp_df['Category'] = detected_category
                         else: temp_df['Category'] = 'UNKNOWN'
                     
-                    # Map Status / Review Status to Exact Aconex Statuses
                     def map_status(row):
-                        # For NCRs, check both 'Status' and 'Review Status'
                         raw_status = str(row.get('Status', '')).lower() if pd.notna(row.get('Status')) else ''
                         raw_review = str(row.get('Review Status', '')).lower() if pd.notna(row.get('Review Status')) else ''
                         combined_s = f"{raw_status} {raw_review}".strip()
@@ -148,39 +249,43 @@ def process_uploaded_logs(_uploaded_files=None):
                         else:
                             s = raw_review if raw_review and raw_review != 'nan' else raw_status
                             if not s or s == 'nan': return 'IGNORE'
-                            if 'approved with comments' in s: return 'B-Approved with Comments'
+                            if 'approved with comments' in s or 'b-approved' in s: return 'B-Approved with Comments'
                             if 'approved' in s and 'comments' not in s: return 'A-Approved'
                             if 'revise' in s or 'resubmit' in s: return 'C-Revise and Resubmit'
                             if 'reject' in s: return 'D-Rejected'
                             return 'IGNORE'
                             
                     temp_df['Status'] = temp_df.apply(map_status, axis=1)
-                    # Filter out IGNORed statuses
                     temp_df = temp_df[temp_df['Status'] != 'IGNORE']
-                        
-                    temp_df['Contractor'] = 'Main Contractor' # Default for Aconex
+                    temp_df['Contractor'] = 'Main Contractor'
                     
-                # Normalize column names
+                # Clean up columns: strip spaces and drop unnamed/foreign junk
                 temp_df.columns = [str(c).strip() for c in temp_df.columns]
-                # Try to parse dates
+                junk_cols = [c for c in temp_df.columns if c.startswith('Unnamed:') or 'General Information' in c]
+                if junk_cols:
+                    temp_df = temp_df.drop(columns=junk_cols, errors='ignore')
+
                 if 'Date' in temp_df.columns:
-                    temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce').dt.date
+                    temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce')
+                    temp_df = temp_df[temp_df['Date'].notna()]
+                    temp_df['Date'] = temp_df['Date'].dt.date
+                    
                 dfs.append(temp_df)
             except Exception as e:
-                print(f"Error reading {file.name}: {e}")
+                print(f"Notice: skipped non-conforming file {getattr(file, 'name', '')}: {e}")
                 
         if len(dfs) > 0:
             df = pd.concat(dfs, ignore_index=True)
             if len(df) == 0:
-                empty_df, mock_cal = _generate_empty_data()
+                empty_df, mock_cal, mock_conc = _generate_empty_data()
                 df = empty_df
                 is_mock = True
             else:
-                # Filter strictly to the 7 approved QA/QC Categories (remove all UNKNOWN)
+                # Filter strictly to the 7 approved QA/QC Categories
                 valid_qc_categories = ['WIR', 'MIR', 'MAR', 'MST', 'ITP', 'SHD', 'NCR']
                 df = df[df['Category'].isin(valid_qc_categories)].copy()
 
-                # For Shop Drawings (SHD), take into account only PDF drawings (exclude DWG files)
+                # For Shop Drawings (SHD), keep only PDF drawings (exclude DWG CAD models)
                 is_shd = df['Category'] == 'SHD'
                 is_pdf = (
                     df['File'].astype(str).str.lower().str.contains('pdf') | 
@@ -188,99 +293,85 @@ def process_uploaded_logs(_uploaded_files=None):
                 )
                 df = df[(~is_shd) | is_pdf].copy()
 
-                # Ensure required columns exist to prevent crashes
+                # When multiple ExportDocs registers are ingested, retain the latest entry per Reference No
+                if 'Reference No' in df.columns:
+                    # Sort by Date / Version if present, keeping latest
+                    sort_cols = [c for c in ['Date', 'Date Modified', 'Version', 'Revision'] if c in df.columns]
+                    if sort_cols:
+                        df = df.sort_values(by=sort_cols, ascending=True)
+                    df = df.drop_duplicates(subset=['Reference No'], keep='last').copy()
+
                 required_cols = ['Date', 'Category', 'Reference No', 'Description', 'Status', 'Area', 'Contractor']
                 for col in required_cols:
                     if col not in df.columns:
                         df[col] = "N/A"
                         
-                def extract_discipline(row):
-                    text = str(row.get('Reference No', '')) + " " + str(row.get('Description', ''))
-                    text = text.upper()
-                    if ' CE ' in text or '-CE-' in text or 'CIVIL' in text: return 'Civil (CE)'
-                    if ' AR ' in text or '-AR-' in text or 'ARCH' in text: return 'Arch (AR)'
-                    if ' EL ' in text or '-EL-' in text or 'ELEC' in text: return 'Electrical (EL)'
-                    if ' ME ' in text or '-ME-' in text or 'MECH' in text: return 'Mechanical (ME)'
-                    if ' ST ' in text or '-ST-' in text or 'STEEL' in text: return 'Struc Steel (ST)'
-                    return 'Other'
-                    
-                df['Discipline'] = df.apply(extract_discipline, axis=1)
-                
-                def extract_root_cause(row):
-                    if row.get('Category') != 'NCR': return 'N/A'
-                    text = str(row.get('Description', '')).lower()
-                    if any(x in text for x in ['concrete', 'compressive', 'strength', 'cube']): return 'Concrete Strength Failure'
-                    if any(x in text for x in ['rebar', 'formwork', 'alignment', 'cover', 'spacing']): return 'Formwork/Rebar Alignment'
-                    if any(x in text for x in ['material', 'spec', 'approved', 'submittal', 'delivery']): return 'Material Specification'
-                    if any(x in text for x in ['workmanship', 'finish', 'crack', 'honeycomb', 'damage', 'poor']): return 'Poor Workmanship'
-                    if any(x in text for x in ['design', 'drawing', 'clash', 'dimension']): return 'Design/Drawing Issue'
-                    return 'Other / Unclassified'
-                    
-                df['Root Cause'] = df.apply(extract_root_cause, axis=1)
+                df['Discipline'] = df.apply(
+                    lambda r: extract_discipline(f"{r.get('Reference No', '')} {r.get('Description', '')}"),
+                    axis=1
+                )
+                df['Root Cause'] = df.apply(
+                    lambda r: extract_root_cause(r.get('Category'), r.get('Description')),
+                    axis=1
+                )
 
-                # Harmonize NCR statuses with Open NCR Tracker (PPT)
-                # If an NCR is in the Open NCR PPT tracker, it remains Open unless PPT explicitly states 'Closed'
+                # Harmonize NCR statuses with Open NCR Tracker presentation
                 try:
-                    ppt_ncrs = {}
-                    for search_dir in ["auto_logs", "logs", ".temp_uploads"]:
-                        if os.path.exists(search_dir):
-                            for fn in os.listdir(search_dir):
-                                if fn.startswith("~$") or fn.startswith("."): continue
-                                if fn.endswith('.pptx') and ('ncr' in fn.lower() or 'open' in fn.lower()):
-                                    try:
-                                        ppt_ncrs = parse_ncr_ppt(os.path.join(search_dir, fn))
-                                        if ppt_ncrs: break
-                                    except:
-                                        pass
-                        if ppt_ncrs: break
-                    
-                    if ppt_ncrs:
-                        for idx, r in df[df['Category'] == 'NCR'].iterrows():
-                            ref = str(r['Reference No']).strip()
-                            match_k = next((k for k in ppt_ncrs if k in ref), None)
-                            if match_k:
-                                p_cur = str(ppt_ncrs[match_k].get('CurrentStatus', '')).strip().lower()
-                                if 'closed' in p_cur:
-                                    df.at[idx, 'Status'] = 'Closed'
-                                else:
-                                    df.at[idx, 'Status'] = 'Open'
+                    ppt_file = find_latest_ncr_ppt()
+                    if ppt_file:
+                        ppt_ncrs = parse_ncr_ppt(ppt_file)
+                        if ppt_ncrs:
+                            ncr_mask = df['Category'] == 'NCR'
+                            for idx, r in df[ncr_mask].iterrows():
+                                ref = str(r['Reference No']).strip()
+                                match_k = next((k for k in ppt_ncrs if k in ref), None)
+                                if match_k:
+                                    p_cur = str(ppt_ncrs[match_k].get('CurrentStatus', '')).strip().lower()
+                                    if 'closed' in p_cur:
+                                        df.at[idx, 'Status'] = 'Closed'
+                                    else:
+                                        df.at[idx, 'Status'] = 'Open'
                 except Exception as e:
-                    print(f"Error harmonizing NCR status with PPT: {e}")
+                    print(f"Notice: NCR PPT harmonization: {e}")
         else:
-            empty_df, mock_cal = _generate_empty_data()
+            empty_df, mock_cal, mock_conc = _generate_empty_data()
             df = empty_df
             is_mock = True
     else:
-        # Fallback if no files uploaded
-        empty_df, mock_cal = _generate_empty_data()
+        empty_df, mock_cal, mock_conc = _generate_empty_data()
         df = empty_df
         is_mock = True
 
     # 2. Calibration Data
     calibration_data = None
     if _uploaded_files:
-        cal_file = next((f for f in _uploaded_files if f.name.endswith('calibration_tracker.xlsx')), None)
+        cal_file = next((f for f in _uploaded_files if 'calibration' in getattr(f, 'name', '').lower()), None)
         if cal_file:
             try:
                 import io
-                cal_bytes = io.BytesIO(cal_file.read())
-                calibration_data = pd.read_excel(cal_bytes)
-            except:
+                cal_path = getattr(cal_file, 'path', None)
+                if cal_path and os.path.exists(cal_path):
+                    calibration_data = pd.read_excel(cal_path, engine='calamine')
+                else:
+                    calibration_data = pd.read_excel(io.BytesIO(cal_file.read()), engine='calamine')
+            except Exception:
                 pass
                 
     if calibration_data is None:
-        _, calibration_data = _generate_empty_data()
+        _, calibration_data, _ = _generate_empty_data()
         
-    # 3. Concrete Data
+    # 3. Structural Concrete Placement Data
     concrete_df = None
     if _uploaded_files:
-        conc_file = next((f for f in _uploaded_files if 'concrete' in f.name.lower()), None)
+        conc_file = next((f for f in _uploaded_files if 'concrete' in getattr(f, 'name', '').lower()), None)
         if conc_file:
             try:
                 import io
-                import datetime
-                conc_bytes = io.BytesIO(conc_file.read())
-                xls = pd.ExcelFile(conc_bytes)
+                conc_path = getattr(conc_file, 'path', None)
+                if conc_path and os.path.exists(conc_path):
+                    xls = pd.ExcelFile(conc_path)
+                else:
+                    xls = pd.ExcelFile(io.BytesIO(conc_file.read()))
                 
                 apportioned_data = []
                 elements = ['Columns', 'External Wall', 'Internal Wall', 'Slab']
@@ -293,7 +384,6 @@ def process_uploaded_logs(_uploaded_files=None):
                     
                     m3_row_idx = None
                     for i, row in el_df.iterrows():
-                        # The new files drop "(m3)" from the label, so make it resilient
                         row_str = str(row.values).lower()
                         if 'concrete quantity' in row_str or 'm3' in row_str:
                             m3_row_idx = i
@@ -303,10 +393,10 @@ def process_uploaded_logs(_uploaded_files=None):
                         continue
                         
                     date_row_idx = None
-                    for i in range(15):
+                    for i in range(min(15, len(el_df))):
                         has_date = False
                         for val in el_df.iloc[i, 4:10].values:
-                            if isinstance(val, pd.Timestamp) or isinstance(val, datetime.datetime):
+                            if isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)):
                                 has_date = True
                                 break
                         if has_date:
@@ -317,7 +407,6 @@ def process_uploaded_logs(_uploaded_files=None):
                         continue
                         
                     dates = el_df.iloc[date_row_idx, 4:].values
-                    
                     zone_data = el_df.iloc[date_row_idx+1:m3_row_idx, [2] + list(range(4, el_df.shape[1]))].copy()
                     zone_data.columns = ['Zone'] + list(dates)
                     
@@ -335,7 +424,6 @@ def process_uploaded_logs(_uploaded_files=None):
                     daily_m3['DailyM3'] = pd.to_numeric(daily_m3['DailyM3'], errors='coerce').fillna(0)
                     
                     merged = pd.merge(melted, daily_m3, on='Date', how='left')
-                    
                     daily_totals = merged.groupby('Date')['RawValue'].transform('sum')
                     merged['Volume'] = 0.0
                     mask = daily_totals > 0
@@ -347,118 +435,73 @@ def process_uploaded_logs(_uploaded_files=None):
                 if apportioned_data:
                     final_df = pd.concat(apportioned_data, ignore_index=True)
                     final_df = final_df[final_df['Volume'] > 0]
-                    final_df['Element'] = final_df['Element'].replace({'Internal Wall': 'Walls', 'External Wall': 'Walls'})
+                    final_df['Element'] = final_df['Element'].replace({
+                        'Internal Wall': 'Walls', 
+                        'External Wall': 'Walls'
+                    })
                     
-                    # Fix Excel '1900-01-24' bug (when someone types '24' instead of a date)
-                    final_df['Date'] = pd.to_datetime(final_df['Date'])
-                    final_df = final_df[final_df['Date'].dt.year >= 2000]
+                    # Sanitize dates and remove year-1900 typo rows
+                    final_df['Date'] = pd.to_datetime(final_df['Date'], errors='coerce')
+                    final_df = final_df[final_df['Date'].dt.year >= 2020]
                     final_df['Date'] = final_df['Date'].dt.date
-                    
                     concrete_df = final_df
             except Exception as e:
-                print(f"Error parsing concrete log: {e}")
+                print(f"Notice: concrete log parser: {e}")
                 
     return df, calibration_data, concrete_df, is_mock
 
 def filter_data(df, start_date, end_date, category):
-    # Ensure dates are comparable as pandas Timestamps
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    start_ts = pd.to_datetime(start_date)
-    end_ts = pd.to_datetime(end_date)
+    """
+    Safely filters dataframe by date range and category WITHOUT mutating the cached dataframe.
+    Ultra-fast vectorized date comparison.
+    """
+    if df is None or len(df) == 0:
+        return df
+        
+    # Standardize comparison dates
+    s_date = start_date.date() if isinstance(start_date, (datetime.datetime, pd.Timestamp)) else start_date
+    e_date = end_date.date() if isinstance(end_date, (datetime.datetime, pd.Timestamp)) else end_date
     
-    mask = (df['Date'] >= start_ts) & (df['Date'] <= end_ts)
-    filtered = df.loc[mask]
-    
+    if 'Date' in df.columns and len(df) > 0:
+        first_val = df['Date'].iloc[0]
+        if isinstance(first_val, datetime.date):
+            date_col = df['Date']
+        else:
+            date_col = pd.to_datetime(df['Date'], errors='coerce').dt.date
+        mask = (date_col >= s_date) & (date_col <= e_date)
+        filtered = df[mask].copy()
+    else:
+        filtered = df.copy()
+        
     if category != "ALL":
         filtered = filtered[filtered['Category'] == category]
         
     return filtered
 
-def parse_ncr_ppt(ppt_path_or_bytes):
-    """Parses NCR tables from Open NCRs PowerPoint slide deck."""
-    import pptx
-    import re
-    
-    prs = pptx.Presentation(ppt_path_or_bytes)
-    ppt_ncrs = {}
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if shape.has_table:
-                table = shape.table
-                for row_idx in range(1, len(table.rows)):
-                    c = [cell.text.strip().replace('\n', ' ') for cell in table.rows[row_idx].cells]
-                    if len(c) < 7: continue
-                    raw_doc = c[1].replace('\x0b', ' ')
-                    found = re.findall(r'SOA-NCR-QL-\d+|ECM-NCR-QL-\d+|NCR-QL-\d+|NCR-\d+', raw_doc)
-                    key = found[0] if found else raw_doc
-                    
-                    # Area / Discipline from raw_doc if in brackets
-                    area = ''
-                    if '(' in raw_doc and ')' in raw_doc:
-                        area = raw_doc[raw_doc.find('(')+1:raw_doc.find(')')]
-                    
-                    ppt_ncrs[key] = {
-                        'Sr': c[0],
-                        'DocRaw': raw_doc,
-                        'Description': c[2],
-                        'CAPA': c[3],
-                        'IssueDate': c[4],
-                        'DaysPassed': c[5],
-                        'CurrentStatus': c[6],
-                        'Area': area
-                    }
-    return ppt_ncrs
-
 def get_ncr_master_data(all_submittals_df, ppt_path=None):
-    """Reconciles cumulative Aconex NCR entries with Open NCRs PowerPoint tracker."""
-    import re
-    import datetime
-    
-    def normalize_zone(text, doc=''):
-        full_text = f"{text} {doc}"
-        m = re.search(r'\b(?:Zone|Z)\s*[-_:]?\s*([A-Za-z0-9]+(?:[- ][A-Za-z0-9]+)?)', full_text, re.IGNORECASE)
-        if m:
-            z = m.group(1).strip().upper()
-            z = re.sub(r'\s+(WAS|EXEC|FOR|IN|AT|OF|WALL|RET|COL|MOCK)\b.*', '', z)
-            if z.isdigit():
-                return f"Zone {int(z)}"
-            m_dig = re.match(r'^([0-9]+)[-_ ]', z)
-            if m_dig:
-                return f"Zone {int(m_dig.group(1))}"
-            m_s = re.match(r'^[A-Z]\s+([0-9]+)', z)
-            if m_s:
-                return f"Zone {int(m_s.group(1))}"
-            if 'B2' in z:
-                return f"Zone {z}"
-            return f"Zone {z}"
-        return "Site-wide / General"
-
-    # 1. Parse PPT if available
+    """
+    Reconciles cumulative Aconex client NCR entries with Open NCR PowerPoint tracker.
+    Applies unified status and aging logic.
+    """
+    # 1. Parse PPT
     ppt_ncrs = {}
     if ppt_path and os.path.exists(ppt_path):
         try:
             ppt_ncrs = parse_ncr_ppt(ppt_path)
-        except Exception as e:
-            print(f"Error parsing PPT {ppt_path}: {e}")
+        except Exception:
+            pass
             
-    # Also check auto_logs or logs folder for Open NCRs pptx
     if not ppt_ncrs:
-        for search_dir in ["auto_logs", "logs", ".temp_uploads"]:
-            if os.path.exists(search_dir):
-                for fn in os.listdir(search_dir):
-                    if fn.startswith("~$") or fn.startswith("."): continue
-                    if fn.endswith('.pptx') and ('ncr' in fn.lower() or 'open' in fn.lower()):
-                        try:
-                            ppt_ncrs = parse_ncr_ppt(os.path.join(search_dir, fn))
-                            if ppt_ncrs: break
-                        except Exception as e:
-                            print(f"Error reading PPT {fn}: {e}")
-            if ppt_ncrs: break
+        found_ppt = find_latest_ncr_ppt()
+        if found_ppt:
+            try:
+                ppt_ncrs = parse_ncr_ppt(found_ppt)
+            except Exception:
+                pass
 
-    # 2. Filter NCRs from master submittal logs
+    # 2. Extract NCRs from master submittal logs
     ncr_submittals = all_submittals_df[all_submittals_df['Category'] == 'NCR'].copy()
     if len(ncr_submittals) > 0:
-        # Keep latest revision per Document / Reference No
         ncr_submittals = ncr_submittals.drop_duplicates(subset=['Reference No'], keep='last')
 
     ref_date = datetime.date.today()
@@ -470,28 +513,29 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
         doc_no = str(r['Reference No']).strip()
         seen_refs.add(doc_no)
         
-        # Match with PPT
-        match_key = None
-        for k in ppt_ncrs:
-            if k in doc_no:
-                match_key = k
-                break
-                
+        match_key = next((k for k in ppt_ncrs if k in doc_no), None)
         p_data = ppt_ncrs.get(match_key, {}) if match_key else {}
         
-        # Determine Date & Aging
         date_val = r['Date']
         if (pd.isna(date_val) or str(date_val) == 'NaT') and 'IssueDate' in p_data:
             date_val = p_data['IssueDate']
         date_dt = pd.to_datetime(date_val, errors='coerce')
         
+        # Calculate days open
         days_open = 0
-        if pd.notna(date_dt):
+        days_passed_str = str(p_data.get('DaysPassed', '')).strip()
+        if days_passed_str:
+            m_days = re.search(r'(\d+)\s*d', days_passed_str, re.IGNORECASE)
+            if m_days:
+                days_open = int(m_days.group(1))
+            elif pd.notna(date_dt):
+                days_open = max(0, (ref_date - date_dt.date()).days)
+        elif pd.notna(date_dt):
             days_open = max(0, (ref_date - date_dt.date()).days)
             
         # Status determination:
-        # If tracked in the Open NCR PPT, the PPT is the live tracker: it is Open unless PPT explicitly says 'Closed'
-        # If NOT in PPT, it follows the submittal register status.
+        # If in PPT tracker, it remains Open unless PPT explicitly says 'Closed'
+        # If not in PPT, it follows the submittal register status.
         ppt_status = p_data.get('CurrentStatus', '')
         aconex_status = str(r.get('Status', 'Open'))
         
@@ -501,10 +545,13 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             final_status = aconex_status
                 
         # Aging category:
-        # If in PPT, follow PPT's DaysPassed / [OVERDUE] indicator if available; else evaluate days_open >= 60
         if final_status == 'Open':
-            days_passed_str = str(p_data.get('DaysPassed', '')).lower()
-            if '[overdue]' in days_passed_str or days_open >= 60:
+            dp_lower = days_passed_str.lower()
+            if '[overdue]' in dp_lower:
+                aging_cat = 'Overdue (> 2 Months)'
+            elif '[< 2 months]' in dp_lower:
+                aging_cat = 'Active (< 2 Months)'
+            elif days_open >= 60:
                 aging_cat = 'Overdue (> 2 Months)'
             else:
                 aging_cat = 'Active (< 2 Months)'
@@ -517,7 +564,6 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             
         status_note = ppt_status if ppt_status else ('Closed / Verified' if final_status == 'Closed' else 'Awaiting review / action')
         
-        # Decode Discipline from numbering
         disc = r.get('Discipline', 'Civil (CE)')
         if p_data.get('Area'):
             disc = f"{p_data['Area']} — {disc}"
@@ -539,10 +585,10 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             'Origin': 'Consultant (SOA)' if 'SOA-NCR' in doc_no else ('JV Internal (ECM)' if 'ECM-NCR' in doc_no else 'Other')
         })
 
-    # Add any remaining PPT items that truly were not in Aconex
+    # Add any remaining PPT items that weren't in Aconex export
     for k, p_data in ppt_ncrs.items():
         doc_raw = p_data.get('DocRaw', k)
-        clean_doc = re.findall(r'[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-NCR-[A-Z0-9]+-\d+', doc_raw.replace(' ', ''))
+        clean_doc = RE_NCR_FULL.findall(doc_raw.replace(' ', ''))
         doc_no = clean_doc[0] if clean_doc else doc_raw
         if any(k in s for s in seen_refs) or any(doc_no in s for s in seen_refs):
             continue
@@ -578,34 +624,30 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
     return master_df
 
 def get_post_pour_data():
-    import pandas as pd
-    import random
-    
+    """Generates standard post-pour defect resolution dataset."""
     zones = ['Basement 1', 'Basement 2'] * 20
-    defects = ['Honeycombing', 'Tie-rod holes', 'Crack', 'Uneven Surface']
+    defects = ['Honeycombing', 'Tie-rod holes', 'Shrinkage Crack', 'Uneven Surface Alignment']
     statuses = ['Open', 'Repaired', 'Inspected']
     contractors = ['Midmac', 'ECM']
     
+    np.random.seed(42)
     data = []
     for i in range(40):
         data.append({
             'Zone': zones[i],
-            'Defect Type': random.choice(defects),
-            'Status': random.choice(statuses),
-            'Contractor': random.choice(contractors)
+            'Defect Type': np.random.choice(defects),
+            'Status': np.random.choice(statuses, p=[0.25, 0.35, 0.40]),
+            'Contractor': np.random.choice(contractors)
         })
         
     return pd.DataFrame(data)
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_training_data():
     """Loads ECM-JV Annual Quality and Functional Training records."""
-    import os
-    import pandas as pd
-    
     qms_rows, func_rows = [], []
     train_file = None
-    for d in ["auto_logs", "logs", "/Users/uzairahmad/Desktop/DG-2/Training", "/Users/uzairahmad/Desktop/Google/Quality Meeting"]:
+    for d in SEARCH_DIRS:
         if os.path.exists(d):
             for fn in os.listdir(d):
                 if fn.startswith("~$") or fn.startswith("."): continue
@@ -638,7 +680,6 @@ def get_training_data():
                 months_raw = df_sheet.iloc[m_row_idx].tolist() if m_row_idx < len(df_sheet) else []
                 weeks_raw = df_sheet.iloc[w_row_idx].tolist() if w_row_idx < len(df_sheet) else []
                 
-                # Map column index to (Week, Month)
                 curr_m = ''
                 col_info = {}
                 for c in range(7, len(weeks_raw)):
@@ -658,7 +699,6 @@ def get_training_data():
                     pct = row[5]
                     pct_str = f"{float(pct)*100:.0f}%" if pd.notna(pct) and float(pct)<=1 else f"{float(pct):.0f}%" if pd.notna(pct) else "N/A"
                     
-                    # Scan planned and completed weeks
                     completed_weeks = []
                     planned_events = []
                     for c in range(7, len(row)):
@@ -697,21 +737,18 @@ def get_training_data():
                     else:
                         func_rows.append(entry)
         except Exception as e:
-            print(f"Error loading training data: {e}")
+            print(f"Notice: training data parser: {e}")
             
     df_qms = pd.DataFrame(qms_rows)
     df_func = pd.DataFrame(func_rows)
     return df_qms, df_func
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_lessons_learned_data():
     """Loads Diriyah Opera House Lessons Learned and Best Practices Register."""
-    import os
-    import pandas as pd
-    
     ll_df, bp_df = pd.DataFrame(), pd.DataFrame()
     ll_file = None
-    for d in ["auto_logs", "logs", "/Users/uzairahmad/Desktop/DG-2/Specs"]:
+    for d in SEARCH_DIRS:
         if os.path.exists(d):
             for fn in os.listdir(d):
                 if fn.startswith("~$") or fn.startswith("."): continue
@@ -745,8 +782,6 @@ def get_lessons_learned_data():
                             bp_df = clean.dropna(subset=[cols[0]])
                             break
         except Exception as e:
-            print(f"Error loading lessons learned data: {e}")
+            print(f"Notice: lessons learned parser: {e}")
             
     return ll_df, bp_df
-
-
