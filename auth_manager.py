@@ -14,7 +14,7 @@ def _hash_password(password: str) -> str:
 
 def init_auth_db():
     """Initializes SQLite database for user credentials and access audit logging."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     c = conn.cursor()
     
     # 1. Users table
@@ -87,7 +87,7 @@ def save_ip_session(ip_address: str, user_dict: dict):
     if not ip_address or not user_dict:
         return
     init_auth_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     c = conn.cursor()
     c.execute("""
         INSERT INTO ip_sessions (ip_address, username, role, email, last_seen)
@@ -106,7 +106,7 @@ def get_user_by_ip(ip_address: str):
     if not ip_address:
         return False, None
     init_auth_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     c = conn.cursor()
     c.execute("""
         SELECT s.username, s.role, s.email 
@@ -129,7 +129,7 @@ def clear_ip_session(ip_address: str):
     if not ip_address:
         return
     init_auth_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     c = conn.cursor()
     c.execute("DELETE FROM ip_sessions WHERE ip_address = ?", (ip_address.strip(),))
     conn.commit()
@@ -138,7 +138,7 @@ def clear_ip_session(ip_address: str):
 def authenticate_user(username_or_email: str, password: str):
     """Verifies user credentials. Returns (bool, user_dict)."""
     init_auth_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     c = conn.cursor()
     c.execute("""
         SELECT username, email, password_hash, role, is_active 
@@ -178,7 +178,7 @@ def verify_remember_token(token: str):
     expected_token = generate_remember_token(username)
     if token == expected_token:
         init_auth_db()
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=10)
         c = conn.cursor()
         c.execute("SELECT username, email, role, is_active FROM users WHERE LOWER(username) = LOWER(?) AND is_active = 1", (username.strip(),))
         row = c.fetchone()
@@ -194,7 +194,7 @@ def verify_remember_token(token: str):
 def log_user_access(username: str, email: str = ""):
     """Logs a successful access event with date and month grouping."""
     init_auth_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     c = conn.cursor()
     today_str = datetime.date.today().isoformat()
     month_str = datetime.date.today().strftime("%Y-%m")
@@ -208,7 +208,7 @@ def log_user_access(username: str, email: str = ""):
 def add_user(username: str, email: str, password: str, role: str = 'viewer'):
     """Adds or updates a user in the database."""
     init_auth_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     c = conn.cursor()
     pwd_hash = _hash_password(password.strip())
     try:
@@ -233,7 +233,7 @@ def add_user(username: str, email: str, password: str, role: str = 'viewer'):
 def get_all_users_df():
     """Returns a pandas DataFrame of all registered users."""
     init_auth_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     df = pd.read_sql_query("SELECT username, email, role, created_at, is_active FROM users ORDER BY created_at DESC", conn)
     conn.close()
     return df
@@ -241,7 +241,7 @@ def get_all_users_df():
 def delete_user(username: str):
     """Deletes a user from the system."""
     init_auth_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     c = conn.cursor()
     c.execute("DELETE FROM users WHERE username = ?", (username,))
     conn.commit()
@@ -250,7 +250,7 @@ def delete_user(username: str):
 def get_access_stats():
     """Returns summarized access stats per user, per day, and per month."""
     init_auth_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     
     # Total access count per user
     user_counts = pd.read_sql_query("""

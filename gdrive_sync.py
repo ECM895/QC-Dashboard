@@ -20,6 +20,7 @@ def sync_from_gdrive(force: bool = False) -> bool:
     if not force and (now - last_sync < SYNC_INTERVAL_SECONDS):
         return False
 
+    st.session_state["last_gdrive_sync"] = now
     try:
         # Download files into auto_logs
         downloaded = gdown.download_folder(
@@ -29,8 +30,7 @@ def sync_from_gdrive(force: bool = False) -> bool:
             use_cookies=False,
             remaining_ok=True
         )
-        st.session_state["last_gdrive_sync"] = now
         return bool(downloaded and len(downloaded) > 0)
     except Exception as e:
-        print(f"GDrive sync warning: {e}")
+        print(f"GDrive sync notice: {e}")
         return False
