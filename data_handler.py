@@ -813,3 +813,113 @@ def get_lessons_learned_data():
             print(f"Notice: lessons learned parser: {e}")
             
     return ll_df, bp_df
+
+def get_kpi_summary_data(start_date=None, end_date=None):
+    """
+    Computes Executive QA/QC KPI Table for Engineering Submittals.
+    Applies formula: Approved % = (Code A + Code B) / (Total - Under Review)
+    Supports both Cumulative (all time) and Filtered Date Range / Monthly intervals.
+    """
+    # Locate ExportDocs
+    target_fp = None
+    for d in SEARCH_DIRS:
+        if os.path.exists(d):
+            for fn in os.listdir(d):
+                if fn.startswith("~$") or fn.startswith("."): continue
+                if fn.endswith(('.xlsx', '.xls')) and 'exportdocs' in fn.lower():
+                    target_fp = os.path.join(d, fn)
+                    break
+        if target_fp: break
+        
+    if not target_fp or not os.path.exists(target_fp):
+        return pd.DataFrame(), pd.DataFrame()
+
+    try:
+        df_raw = pd.read_excel(target_fp, skiprows=10, engine='calamine')
+    except Exception:
+        df_raw = pd.read_excel(target_fp, skiprows=10)
+
+    # Deduplicate keeping latest
+    df_clean = df_raw.drop_duplicates(subset=['Document No'], keep='last').copy()
+
+    def classify_kpi_doc(r):
+        doc = str(r.get('Document No', '')).upper()
+        t = str(r.get('Type', '')).upper()
+        title = str(r.get('Title', '')).upper()
+        fn = str(r.get('File', '')).lower()
+        
+        if '-PLN-MN-' in doc or '-PLN-BM-' in doc or 'EXECUTION PLAN' in title or 'PEP' in title:
+            return 'PEP'
+        if '-PLN-QL-' in doc or 'QUALITY PLAN' in title or 'PQP' in title:
+            return 'PQP'
+        if '-PRO-QL-' in doc or 'QUALITY PROCEDURE' in title or 'QA/QC PROCEDURE' in title:
+            return 'QA/QC Procedures'
+        if '-MTS-' in doc or 'METHOD STATEMENT' in t:
+            return 'MTS'
+        if '-ITP-' in doc or ('INSPECTION' in t and 'TEST PLAN' in t):
+            return 'ITP'
+        if '-MAT-' in doc or 'MATERIAL APPROVAL' in t:
+            return 'MAR'
+        if '-PQQ-' in doc or 'PREQUALIFICATION' in t:
+            return 'PQD'
+        if ('-SDW-' in doc or 'SHOP DRAWING' in t) and (fn.endswith('.pdf') or doc.endswith('_PDF')):
+            return 'SDW'
+        return None
+
+    df_clean['KPI_Category'] = df_clean.apply(classify_kpi_doc, axis=1)
+    df_kpi = df_clean[df_clean['KPI_Category'].notna()].copy()
+
+    def map_kpi_status(row):
+        s = f"{row.get('Status', '')} {row.get('Review Status', '')}".lower()
+        if 'approved with comments' in s or 'b-approved' in s: return 'Code B'
+        if 'approved' in s and 'comments' not in s: return 'Code A'
+        if 'revise' in s or 'resubmit' in s: return 'Code C'
+        if 'reject' in s: return 'Code D'
+        if any(x in s for x in ['for review', 'for approval', 'in progress', 'under review']): return 'Under Review'
+        return 'Other'
+
+    df_kpi['Code'] = df_kpi.apply(map_kpi_status, axis=1)
+    df_kpi['Date'] = pd.to_datetime(df_kpi['Revision Date'], errors='coerce')
+
+    kpi_categories_order = [
+        'PEP', 'PQP', 'QA/QC Procedures', 'MTS', 'ITP', 'MAR', 'PQD', 'SDW'
+    ]
+
+    def build_summary_table(target_subset):
+        rows = []
+        for cat in kpi_categories_order:
+            sub = target_subset[target_subset['KPI_Category'] == cat]
+            tot = len(sub)
+            a = (sub['Code'] == 'Code A').sum()
+            b = (sub['Code'] == 'Code B').sum()
+            c = (sub['Code'] == 'Code C').sum()
+            d = (sub['Code'] == 'Code D').sum()
+            ur = (sub['Code'] == 'Under Review').sum()
+            decided = tot - ur
+            appr_pct = ((a + b) / decided * 100) if decided > 0 else 0.0
+            
+            rows.append({
+                'KPI Category': cat,
+                'Total': tot,
+                'Code A': a,
+                'Code B': b,
+                'Code C': c,
+                'Code D': d,
+                'Under Review': ur,
+                'Approved % (A & B)': f"{appr_pct:.0f}%",
+                '_rate_num': appr_pct
+            })
+        return pd.DataFrame(rows)
+
+    cum_table = build_summary_table(df_kpi)
+
+    # Filtered / Monthly table
+    if start_date and end_date:
+        s_dt = pd.to_datetime(start_date)
+        e_dt = pd.to_datetime(end_date)
+        period_subset = df_kpi[(df_kpi['Date'] >= s_dt) & (df_kpi['Date'] <= e_dt)]
+        period_table = build_summary_table(period_subset)
+    else:
+        period_table = cum_table.copy()
+
+    return cum_table, period_table

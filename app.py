@@ -5,7 +5,8 @@ import math
 import os
 from data_handler import (
     process_uploaded_logs, filter_data, get_ncr_master_data,
-    get_training_data, get_lessons_learned_data, get_post_pour_data
+    get_training_data, get_lessons_learned_data, get_post_pour_data,
+    get_kpi_summary_data
 )
 from visualizations import (
     inject_custom_css, render_hero_header, render_hero_metric_cards,
@@ -185,7 +186,7 @@ nav_definitions = [
     ("CONCRETE",   "🏗️ Concrete"),
     ("TRAINING",   "🎓 Training"),
     ("LESSONS",    "💡 Lessons"),
-    ("MONTHLY",    "📅 Reports")
+    ("MONTHLY",    "🎯 KPI")
 ]
 if user_is_admin:
     nav_definitions.append(("ADMIN", "👥 Users"))
@@ -1229,77 +1230,222 @@ elif st.session_state.current_view == "LESSONS":
             st.info("Best Practices register not found.")
 
 # =============================================================================
-# VIEW 7: MONTHLY QUALITY STATUS REPORT EXTRACT
+# VIEW 7: EXECUTIVE QA/QC KPI CENTER
 # =============================================================================
 elif st.session_state.current_view == "MONTHLY":
-    section_title("📅 Monthly Quality Status Report — Master Register Extract")
-    st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 20px 0;'>Aggregated quality performance indicators extracted from cumulative master logs.</p>", unsafe_allow_html=True)
+    section_title("🎯 Executive QA/QC KPI & Engineering Submittal Performance Center")
+    st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 16px 0;'>Official QA/QC Compliance Index with approved rate formula: <code>Approved % = (Code A + Code B) / (Total - Under Review)</code>.</p>", unsafe_allow_html=True)
 
-    def get_metrics(cat, df_target):
-        cat_df = df_target[df_target['Category'] == cat]
-        total = len(cat_df)
-        approved = len(cat_df[cat_df['Status'].isin(['A-Approved', 'B-Approved with Comments', 'Closed', 'Valid', 'Approved'])])
-        open_count = len(cat_df[cat_df['Status'].isin(['Open', 'Pending', 'Under Review'])])
-        rate = (approved / total * 100) if total > 0 else 0
-        return total, approved, open_count, rate
+    cum_kpi, period_kpi = get_kpi_summary_data(st.session_state.start_date, st.session_state.end_date)
 
-    st.markdown("### 📂 Section 2: QMS & Engineering Submittals")
-    qms_categories = [
-        ("Method Statements (MS / MST)", "MST", 90.0),
-        ("Inspection & Test Plans (ITP)", "ITP", 90.0),
-        ("Material Approval Requests (MAR)", "MAR", 85.0),
-        ("Shop Drawings (SDW / SHD)", "SHD", 85.0)
-    ]
-    qms_data = []
-    for name, cat, target in qms_categories:
-        p_tot, p_app, _, p_rate = get_metrics(cat, date_filtered_df)
-        c_tot, c_app, _, c_rate = get_metrics(cat, df)
-        qms_data.append({
-            "Submittal Category": name,
-            "Period Submissions": f"{p_tot:,}",
-            "Period Approved (A+B)": f"{p_app:,}",
-            "Period Compliance": f"{p_rate:.1f}%",
-            "Cumulative Submissions": f"{c_tot:,}",
-            "Cumulative Approved (A+B)": f"{c_app:,}",
-            "Cumulative Rate": f"{c_rate:.1f}%",
-            "Target Rate": f"{target:.0f}%"
-        })
-    st.dataframe(pd.DataFrame(qms_data), use_container_width=True, hide_index=True)
+    tab_cum_kpi, tab_month_kpi, tab_kpi_compare = st.tabs([
+        "🌐 Cumulative Project KPI (All Time)",
+        f"📅 Timeframe & Monthly KPI ({date_range_str})",
+        "📊 KPI Performance Distribution Charts"
+    ])
 
-    st.markdown("### 🏗️ Section 3 & 4: Inspections & Non-Conformance Tracking")
-    insp_data = []
-    ncr_p_tot, _, ncr_p_open, _ = get_metrics("NCR", date_filtered_df)
-    ncr_c_tot, ncr_c_closed, ncr_c_open, _ = get_metrics("NCR", df)
-    ncr_closure = (ncr_c_closed / ncr_c_tot * 100) if ncr_c_tot > 0 else 0
-    insp_data.append({
-        "Quality Area": "Non-Conformance Reports (NCR)",
-        "Period Raised": f"{ncr_p_tot:,}",
-        "Period Open/Action": f"{ncr_p_open:,}",
-        "Cumulative Raised": f"{ncr_c_tot:,}",
-        "Cumulative Closed": f"{ncr_c_closed:,}",
-        "Closure %": f"{ncr_closure:.1f}%"
-    })
-    mir_p_tot, mir_p_app, _, mir_p_rate = get_metrics("MIR", date_filtered_df)
-    mir_c_tot, mir_c_app, _, mir_c_rate = get_metrics("MIR", df)
-    insp_data.append({
-        "Quality Area": "Material Inspection Requests (MIR)",
-        "Period Raised": f"{mir_p_tot:,}",
-        "Period Open/Action": f"{mir_p_app:,} Approved",
-        "Cumulative Raised": f"{mir_c_tot:,}",
-        "Cumulative Closed": f"{mir_c_app:,} Approved",
-        "Closure %": f"{mir_c_rate:.1f}%"
-    })
-    wir_p_tot, wir_p_app, _, wir_p_rate = get_metrics("WIR", date_filtered_df)
-    wir_c_tot, wir_c_app, _, wir_c_rate = get_metrics("WIR", df)
-    insp_data.append({
-        "Quality Area": "Work Inspection Requests (WIR)",
-        "Period Raised": f"{wir_p_tot:,}",
-        "Period Open/Action": f"{wir_p_app:,} Approved",
-        "Cumulative Raised": f"{wir_c_tot:,}",
-        "Cumulative Closed": f"{wir_c_app:,} Approved",
-        "Closure %": f"{wir_c_rate:.1f}%"
-    })
-    st.dataframe(pd.DataFrame(insp_data), use_container_width=True, hide_index=True)
+    def render_styled_kpi_table(kpi_df, title_label):
+        if kpi_df is None or len(kpi_df) == 0:
+            st.info("No submittal records available to compute KPIs.")
+            return
+
+        disp_df = kpi_df.copy()
+        
+        # Calculate summary totals row
+        tot_all = disp_df['Total'].sum()
+        ca_all = disp_df['Code A'].sum()
+        cb_all = disp_df['Code B'].sum()
+        cc_all = disp_df['Code C'].sum()
+        cd_all = disp_df['Code D'].sum()
+        ur_all = disp_df['Under Review'].sum()
+        decided_all = tot_all - ur_all
+        total_rate = ((ca_all + cb_all) / decided_all * 100) if decided_all > 0 else 0
+
+        summary_row = pd.DataFrame([{
+            'KPI Category': 'PROJECT TOTAL',
+            'Total': tot_all,
+            'Code A': ca_all,
+            'Code B': cb_all,
+            'Code C': cc_all,
+            'Code D': cd_all,
+            'Under Review': ur_all,
+            'Approved % (A & B)': f"{total_rate:.0f}%",
+            '_rate_num': total_rate
+        }])
+        table_with_total = pd.concat([disp_df, summary_row], ignore_index=True)
+
+        # Style matching the user's reference sheet
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #B45309 0%, #D97706 100%); padding: 10px 18px; border-radius: 10px 10px 0 0; color: #FFFFFF; font-weight: 800; font-size: 0.95rem; letter-spacing: 0.05em; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.06);'>
+            {title_label}
+        </div>
+        """, unsafe_allow_html=True)
+
+        cols_to_show = ['KPI Category', 'Total', 'Code A', 'Code B', 'Code C', 'Code D', 'Under Review', 'Approved % (A & B)']
+        st.dataframe(
+            table_with_total[cols_to_show],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "KPI Category": st.column_config.TextColumn("Submittal / Document Type", width="medium"),
+                "Total": st.column_config.NumberColumn("Total Submissions", format="%d"),
+                "Code A": st.column_config.NumberColumn("Code A (Approved)", format="%d"),
+                "Code B": st.column_config.NumberColumn("Code B (Appr. w/ Notes)", format="%d"),
+                "Code C": st.column_config.NumberColumn("Code C (Revise)", format="%d"),
+                "Code D": st.column_config.NumberColumn("Code D (Reject)", format="%d"),
+                "Under Review": st.column_config.NumberColumn("Under Review (Deducted)", format="%d"),
+                "Approved % (A & B)": st.column_config.TextColumn("Approved % (A & B)", width="small")
+            }
+        )
+
+        st.caption("ℹ️ *Note: 'Under Review' items are strictly deducted from Total before calculating Approved %: `(Code A + Code B) / (Total - Under Review)`.*")
+
+    with tab_cum_kpi:
+        render_styled_kpi_table(cum_kpi, "KPI — CUMULATIVE MASTER STATUS")
+        
+        st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
+        # KPI KPI Metric Highlights
+        if cum_kpi is not None and len(cum_kpi) > 0:
+            k1, k2, k3, k4 = st.columns(4)
+            with k1:
+                st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #2563EB;"><div class="detail-kpi-title">TOTAL REGISTERED</div><div class="detail-kpi-value" style="color: #2563EB;">{cum_kpi["Total"].sum():,}</div><div class="detail-kpi-sub">All engineering submittals</div></div>', unsafe_allow_html=True)
+            with k2:
+                tot_appr = cum_kpi["Code A"].sum() + cum_kpi["Code B"].sum()
+                st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #10B981;"><div class="detail-kpi-title">APPROVED (CODE A + B)</div><div class="detail-kpi-value" style="color: #10B981;">{tot_appr:,}</div><div class="detail-kpi-sub">Cleared for execution</div></div>', unsafe_allow_html=True)
+            with k3:
+                st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #F59E0B;"><div class="detail-kpi-title">UNDER REVIEW</div><div class="detail-kpi-value" style="color: #D97706;">{cum_kpi["Under Review"].sum():,}</div><div class="detail-kpi-sub">Deducted from baseline</div></div>', unsafe_allow_html=True)
+            with k4:
+                dec = cum_kpi["Total"].sum() - cum_kpi["Under Review"].sum()
+                ov_rate = (tot_appr / dec * 100) if dec > 0 else 0
+                st.markdown(f'<div class="detail-kpi-card" style="border-top-color: #6366F1;"><div class="detail-kpi-title">OVERALL COMPLIANCE</div><div class="detail-kpi-value" style="color: #6366F1;">{ov_rate:.1f}%</div><div class="detail-kpi-sub">Decided approval index</div></div>', unsafe_allow_html=True)
+
+    with tab_month_kpi:
+        render_styled_kpi_table(period_kpi, f"KPI — TIMEFRAME STATUS ({date_range_str})")
+
+        st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
+        # Monthly progression table
+        st.markdown("##### 📅 Monthly Submittal KPI Breakdown")
+        try:
+            # Group by month
+            raw_docs = pd.read_excel(os.path.join(AUTO_DIR, "ExportDocs.xlsx"), skiprows=10, engine='calamine')
+            raw_clean = raw_docs.drop_duplicates(subset=['Document No'], keep='last').copy()
+            raw_clean['Date'] = pd.to_datetime(raw_clean['Revision Date'], errors='coerce')
+            raw_clean['Month'] = raw_clean['Date'].dt.strftime('%b %Y')
+            raw_clean['Month_Sort'] = raw_clean['Date'].dt.to_period('M')
+
+            def classify_sub_kpi(r):
+                doc = str(r.get('Document No', '')).upper()
+                t = str(r.get('Type', '')).upper()
+                title = str(r.get('Title', '')).upper()
+                fn = str(r.get('File', '')).lower()
+                if '-PLN-MN-' in doc or '-PLN-BM-' in doc or 'EXECUTION PLAN' in title or 'PEP' in title: return 'PEP'
+                if '-PLN-QL-' in doc or 'QUALITY PLAN' in title or 'PQP' in title: return 'PQP'
+                if '-PRO-QL-' in doc or 'QUALITY PROCEDURE' in title: return 'QA/QC Procedures'
+                if '-MTS-' in doc or 'METHOD STATEMENT' in t: return 'MTS'
+                if '-ITP-' in doc or ('INSPECTION' in t and 'TEST PLAN' in t): return 'ITP'
+                if '-MAT-' in doc or 'MATERIAL APPROVAL' in t: return 'MAR'
+                if '-PQQ-' in doc or 'PREQUALIFICATION' in t: return 'PQD'
+                if ('-SDW-' in doc or 'SHOP DRAWING' in t) and (fn.endswith('.pdf') or doc.endswith('_PDF')): return 'SDW'
+                return None
+            
+            raw_clean['KPI_Cat'] = raw_clean.apply(classify_sub_kpi, axis=1)
+            raw_clean = raw_clean[raw_clean['KPI_Cat'].notna()]
+
+            def get_sub_code(row):
+                s = f"{row.get('Status', '')} {row.get('Review Status', '')}".lower()
+                if 'approved with comments' in s or 'b-approved' in s: return 'Code B'
+                if 'approved' in s and 'comments' not in s: return 'Code A'
+                if 'revise' in s or 'resubmit' in s: return 'Code C'
+                if 'reject' in s: return 'Code D'
+                if any(x in s for x in ['for review', 'for approval', 'in progress', 'under review']): return 'Under Review'
+                return 'Other'
+            
+            raw_clean['Code'] = raw_clean.apply(get_sub_code, axis=1)
+
+            # Available months
+            available_months = raw_clean.groupby(['Month_Sort', 'Month']).size().reset_index().sort_values('Month_Sort', ascending=False)
+            month_choices = available_months['Month'].tolist()
+            
+            if month_choices:
+                sel_m = st.selectbox("Select Month to Inspect", month_choices, index=0)
+                m_sub = raw_clean[raw_clean['Month'] == sel_m]
+                
+                m_rows = []
+                for cat in ['PEP', 'PQP', 'QA/QC Procedures', 'MTS', 'ITP', 'MAR', 'PQD', 'SDW']:
+                    c_sub = m_sub[m_sub['KPI_Cat'] == cat]
+                    tot = len(c_sub)
+                    a = (c_sub['Code'] == 'Code A').sum()
+                    b = (c_sub['Code'] == 'Code B').sum()
+                    c = (c_sub['Code'] == 'Code C').sum()
+                    d = (c_sub['Code'] == 'Code D').sum()
+                    ur = (c_sub['Code'] == 'Under Review').sum()
+                    dec = tot - ur
+                    rate = ((a + b) / dec * 100) if dec > 0 else 0
+                    m_rows.append({
+                        'KPI Category': cat,
+                        'Total': tot,
+                        'Code A': a,
+                        'Code B': b,
+                        'Code C': c,
+                        'Code D': d,
+                        'Under Review': ur,
+                        'Approved % (A & B)': f"{rate:.0f}%"
+                    })
+                render_styled_kpi_table(pd.DataFrame(m_rows), f"MONTHLY KPI TABLE — {sel_m.upper()}")
+        except Exception as e:
+            st.info(f"Notice: monthly table breakdown: {e}")
+
+    with tab_kpi_compare:
+        st.markdown("##### 📊 KPI Performance & Approval Rates Comparison")
+        if cum_kpi is not None and len(cum_kpi) > 0:
+            kpi_chart_c1, kpi_chart_c2 = st.columns(2)
+            with kpi_chart_c1:
+                # 3D Bar chart of approval rates
+                fig_rates = px.bar(
+                    cum_kpi, x='KPI Category', y='_rate_num',
+                    text=cum_kpi['_rate_num'].apply(lambda x: f"{x:.0f}%"),
+                    color='_rate_num',
+                    color_continuous_scale=['#EF4444', '#F59E0B', '#10B981'],
+                    range_color=[0, 100]
+                )
+                fig_rates.update_traces(
+                    marker=dict(line=dict(color="rgba(15,23,42,0.25)", width=1.5)),
+                    textposition="outside",
+                    textfont=dict(size=11, family="Inter", color="#0F172A", weight=700)
+                )
+                apply_chart_style(fig_rates, "APPROVED % (CODE A + B) BY KPI CATEGORY", height=350)
+                fig_rates.update_yaxes(title="Approved %", range=[0, 115])
+                fig_rates.update_xaxes(title="")
+                fig_rates.update_layout(coloraxis_showscale=False)
+                st.plotly_chart(fig_rates, use_container_width=True, config=PLOTLY_CONFIG)
+
+            with kpi_chart_c2:
+                # 3D breakdown of Code A vs Code B vs Code C vs Code D
+                status_melt = pd.melt(
+                    cum_kpi, id_vars=['KPI Category'],
+                    value_vars=['Code A', 'Code B', 'Code C', 'Code D', 'Under Review'],
+                    var_name='Status', value_name='Count'
+                )
+                color_map_kpi = {
+                    'Code A': '#10B981',
+                    'Code B': '#0EA5E9',
+                    'Code C': '#F59E0B',
+                    'Code D': '#EF4444',
+                    'Under Review': '#94A3B8'
+                }
+                fig_kpi_dist = px.bar(
+                    status_melt, x='KPI Category', y='Count', color='Status',
+                    color_discrete_map=color_map_kpi, barmode='stack', text_auto=True
+                )
+                fig_kpi_dist.update_traces(
+                    textposition="inside",
+                    textfont=dict(color="#FFFFFF", weight=700),
+                    marker=dict(line=dict(color="rgba(255,255,255,0.7)", width=1.5))
+                )
+                apply_chart_style(fig_kpi_dist, "SUBMITTAL VOLUME DISTRIBUTION BY STATUS", height=350)
+                fig_kpi_dist.update_xaxes(title="")
+                fig_kpi_dist.update_yaxes(title="Document Count")
+                st.plotly_chart(fig_kpi_dist, use_container_width=True, config=PLOTLY_CONFIG)
 
 # =============================================================================
 # VIEW 8: USER MANAGEMENT & ACCESS AUDIT (ADMIN ONLY)
