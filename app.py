@@ -33,104 +33,15 @@ st.set_page_config(
 
 inject_custom_css()
 
-# ── Authentication & Access Control Gate ──────────────────────────────────────
-is_local_mac = (
-    os.path.exists("/Users/uzairahmad") or 
-    os.environ.get("USER") == "uzairahmad" or
-    "mac" in os.uname().sysname.lower() or
-    "darwin" in os.uname().sysname.lower()
-)
-
-client_ip = get_client_ip()
-
-# 1. Check persistent remember token from URL
-token_param = st.query_params.get("auth_token", None)
-if token_param and "authenticated" not in st.session_state:
-    is_valid, token_user = verify_remember_token(token_param)
-    if is_valid:
-        st.session_state.authenticated = True
-        st.session_state.user_info = token_user
-        save_ip_session(client_ip, token_user)
-    del st.query_params["auth_token"]
-
-# 2. Check saved IP session (auto-login recognized client IP)
-if "authenticated" not in st.session_state or not st.session_state.authenticated:
-    has_ip_sess, ip_user = get_user_by_ip(client_ip)
-    if has_ip_sess and ip_user:
-        st.session_state.authenticated = True
-        st.session_state.user_info = ip_user
-
-# 3. Fallback for local Mac developer machine
-if "authenticated" not in st.session_state:
-    if is_local_mac:
-        st.session_state.authenticated = True
-        st.session_state.user_info = {
-            "username": "uzair087",
-            "email": "uzair.ahmad@ecm-jv.com",
-            "role": "admin"
-        }
-        save_ip_session(client_ip, st.session_state.user_info)
-    else:
-        st.session_state.authenticated = False
-
-if "user_info" not in st.session_state:
-    st.session_state.user_info = None
-
-# Show Login Page if not authenticated
-if not st.session_state.authenticated:
-    _, center_col, _ = st.columns([1.2, 1.2, 1.2])
-    with center_col:
-        st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
-        if os.path.exists("ecm_logo.png"):
-            col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
-            with col_l2:
-                st.image("ecm_logo.png", use_container_width=True)
-        st.markdown("""
-            <div style='text-align: center; margin-bottom: 20px; margin-top: 6px;'>
-                <div style='font-size: 1.3rem; font-weight: 800; color: #0F172A; letter-spacing: -0.02em;'>
-                    Royal Diriyah Opera House
-                </div>
-                <div style='font-size: 0.82rem; font-weight: 600; color: #64748B;'>
-                    QA/QC Executive Management Platform &bull; ECM-JV
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-        with st.container(border=True):
-            st.markdown("<div style='font-size: 1.0rem; font-weight: 700; color: #1E293B; margin-bottom: 12px;'>🔒 Sign In to Access Dashboard</div>", unsafe_allow_html=True)
-            login_username = st.text_input("Username or Email", key="input_login_user")
-            login_password = st.text_input("Password", type="password", key="input_login_pass")
-            remember_me = st.checkbox("Remember me on this browser", value=True, key="remember_me_check")
-            
-            if st.button("Sign In ➔", type="primary", use_container_width=True):
-                if not login_username or not login_password:
-                    st.error("Please enter both username/email and password.")
-                else:
-                    success, user_dict = authenticate_user(login_username, login_password)
-                    if success:
-                        st.session_state.authenticated = True
-                        st.session_state.user_info = user_dict
-                        log_user_access(user_dict["username"], user_dict.get("email", ""))
-                        save_ip_session(client_ip, user_dict)
-                        if "auth_token" in st.query_params:
-                            del st.query_params["auth_token"]
-                        st.success(f"Welcome back, {user_dict['username']}!")
-                        st.rerun()
-                    else:
-                        st.error("Invalid credentials. Please contact QA/QC administration.")
-
-            st.markdown("""
-                <div style='text-align: center; font-size: 0.78rem; color: #64748B; margin-top: 14px; padding-top: 10px; border-top: 1px solid #E2E8F0;'>
-                    Forgot your password? Please contact your <strong>QA/QC Administrator</strong> for password recovery.
-                </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("""
-            <div style='text-align: center; font-size: 0.74rem; color: #94A3B8; margin-top: 16px;'>
-                Restricted Project Access &bull; All sessions are monitored & logged.
-            </div>
-        """, unsafe_allow_html=True)
-    st.stop()
+# ── Authentication & Access Control Gate (Temporarily Disabled) ───────────────
+# Direct open access enabled as requested
+st.session_state.authenticated = True
+if "user_info" not in st.session_state or not st.session_state.user_info:
+    st.session_state.user_info = {
+        "username": "uzair087",
+        "email": "uzair.ahmad@ecm-jv.com",
+        "role": "admin"
+    }
 
 # ── State Initialization ──────────────────────────────────────────────────────
 cat_param = st.query_params.get("category", None)
@@ -279,7 +190,7 @@ nav_definitions = [
 if user_is_admin:
     nav_definitions.append(("ADMIN", "👥 Users"))
 
-nav_cols = st.columns(len(nav_definitions) + 1)
+nav_cols = st.columns(len(nav_definitions))
 for idx, (k, lbl) in enumerate(nav_definitions):
     with nav_cols[idx]:
         is_cur = (st.session_state.current_view == k)
@@ -288,15 +199,6 @@ for idx, (k, lbl) in enumerate(nav_definitions):
             st.session_state.current_view = k
             st.session_state.page_num = 1
             st.rerun()
-
-with nav_cols[-1]:
-    if st.button("🔒 Sign Out", key="top_nav_signout", type="secondary", use_container_width=True):
-        st.session_state.authenticated = False
-        st.session_state.user_info = None
-        clear_ip_session(client_ip)
-        if "auth_token" in st.query_params:
-            del st.query_params["auth_token"]
-        st.rerun()
 
 st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
 
