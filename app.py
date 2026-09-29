@@ -461,22 +461,77 @@ if st.session_state.current_view == "OVERVIEW":
 # =============================================================================
 elif st.session_state.current_view == "DRILLDOWN":
     section_title("🔍 Category Wise Inspection & Submittal Analysis")
-    st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 18px 0;'>Detailed breakdown by QA/QC category with status analysis, discipline distribution, and master document registers.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#64748B;font-size:0.85rem;margin:-8px 0 14px 0;'>Select an inspection or submittal category below to review status progression, discipline distribution, and register items.</p>", unsafe_allow_html=True)
     
-    cat_options = ["WIR", "MIR", "MAR", "MST", "ITP", "SHD", "NCR"]
-    top_c1, top_c2 = st.columns([3, 1])
-    with top_c1:
-        selected_cat = st.selectbox(
-            "Select QA/QC Category to Inspect", cat_options, 
-            index=cat_options.index(st.session_state.selected_category) if st.session_state.selected_category in cat_options else 0
-        )
-        st.session_state.selected_category = selected_cat
-    with top_c2:
-        st.write("")
-        st.write("")
-        if st.button("⬅️ Return to Overview", use_container_width=True):
-            st.session_state.current_view = "OVERVIEW"
-            st.rerun()
+    cat_config = [
+        ("WIR", "Work Inspection (WIR)",        "#2563EB", "#1D4ED8"),
+        ("MIR", "Material Inspection (MIR)",    "#0D9488", "#0F766E"),
+        ("MAR", "Material Approval (MAR)",      "#7C3AED", "#6D28D9"),
+        ("MST", "Method Statement (MST)",       "#D97706", "#B45309"),
+        ("ITP", "Inspection Plan (ITP)",        "#0284C7", "#0369A1"),
+        ("SHD", "Shop Drawings (SHD)",          "#4F46E5", "#4338CA"),
+        ("NCR", "Non-Conformance (NCR)",        "#DC2626", "#B91C1C")
+    ]
+    
+    st.markdown("<div style='font-size:0.84rem;font-weight:700;color:#1E293B;margin-bottom:8px;'>SELECT QA/QC CATEGORY TO INSPECT:</div>", unsafe_allow_html=True)
+    
+    btn_cols = st.columns(len(cat_config))
+    for idx, (c_code, c_label, c_color, c_hover) in enumerate(cat_config):
+        is_selected = (st.session_state.selected_category == c_code)
+        with btn_cols[idx]:
+            # Inject dynamic custom CSS for each category button with its own distinct solid color
+            if is_selected:
+                btn_css = f"""
+                <style>
+                div[data-testid*="btn_cat_{c_code}"] button,
+                button[kind="primary"][data-testid*="btn_cat_{c_code}"],
+                button[id*="btn_cat_{c_code}"] {{
+                    background: {c_color} !important;
+                    background-color: {c_color} !important;
+                    color: #FFFFFF !important;
+                    border: 2px solid {c_hover} !important;
+                    font-weight: 800 !important;
+                    font-size: 0.90rem !important;
+                    padding: 10px 4px !important;
+                    border-radius: 10px !important;
+                    box-shadow: 0 4px 14px {c_color}66 !important;
+                    transform: scale(1.03);
+                }}
+                </style>
+                """
+            else:
+                btn_css = f"""
+                <style>
+                div[data-testid*="btn_cat_{c_code}"] button,
+                button[id*="btn_cat_{c_code}"] {{
+                    background: #FFFFFF !important;
+                    background-color: #FFFFFF !important;
+                    color: {c_color} !important;
+                    border: 1.5px solid #CBD5E1 !important;
+                    border-top: 4px solid {c_color} !important;
+                    font-weight: 700 !important;
+                    font-size: 0.86rem !important;
+                    padding: 8px 4px !important;
+                    border-radius: 10px !important;
+                    box-shadow: 0 1px 3px rgba(15,23,42,0.06) !important;
+                }}
+                div[data-testid*="btn_cat_{c_code}"] button:hover,
+                button[id*="btn_cat_{c_code}"]:hover {{
+                    background: {c_color}18 !important;
+                    border-color: {c_color} !important;
+                    color: {c_color} !important;
+                }}
+                </style>
+                """
+            st.markdown(btn_css, unsafe_allow_html=True)
+            
+            btn_text = f"● {c_code}" if is_selected else c_code
+            b_kind = "primary" if is_selected else "secondary"
+            if st.button(btn_text, key=f"btn_cat_{c_code}", type=b_kind, use_container_width=True):
+                st.session_state.selected_category = c_code
+                st.rerun()
+
+    st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 
     cat = st.session_state.selected_category
     cat_df = date_filtered_df[date_filtered_df['Category'] == cat]
