@@ -861,7 +861,16 @@ elif st.session_state.current_view == "CONCRETE":
                 c_df['Month'] = pd.to_datetime(c_df['Date']).dt.strftime('%b %Y')
                 c_df['Month_Sort'] = pd.to_datetime(c_df['Date']).dt.to_period('M')
                 conc_c1, conc_c2 = st.columns(2)
-                color_map = {'Columns': '#1E3A8A', 'Walls': '#2563EB', 'Slab': '#60A5FA'}
+                color_map = {
+                    'Raft & Foundation': '#1E3A8A', 
+                    'Walls': '#2563EB', 
+                    'Slab': '#3B82F6', 
+                    'Columns': '#0D9488',
+                    'Blinding': '#64748B',
+                    'Stairs': '#F59E0B',
+                    'Beams': '#8B5CF6',
+                    'Other Concrete': '#94A3B8'
+                }
                 with conc_c1:
                     zone_el = c_df.groupby(['Zone', 'Element'])['Volume'].sum().reset_index()
                     fig_c1 = plot_grouped_bar_chart(zone_el, 'Zone', 'Volume', 'Element', "CONCRETE PLACEMENT BY ZONE & ELEMENT (m³)", color_map, height=360)

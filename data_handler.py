@@ -129,9 +129,9 @@ def process_uploaded_logs(_uploaded_files=None):
     
     if _uploaded_files and len(_uploaded_files) > 0:
         aux_keywords = [
-            'learning event', 'training schedule', 'lessons_learned', 
-            'best_practices', 'cast insitu', 'daily productivity', 
-            'calibration_tracker', 'template_logs'
+            'learning event', 'training schedule', 'training', 'lessons learned',
+            'lessons_learned', 'best_practices', 'best practices', 'cast insitu',
+            'cast in situ', 'daily productivity', 'concrete', 'calibration'
         ]
         log_files = [
             f for f in _uploaded_files 
@@ -184,7 +184,7 @@ def process_uploaded_logs(_uploaded_files=None):
                         )
 
                 # Check for Standard Aconex Exports
-                elif len(temp_df.columns) > 0 and "In case any cell is highlighted" in str(temp_df.columns[0]):
+                elif len(temp_df.columns) > 0 and ("In case any cell is highlighted" in str(temp_df.columns[0]) or "exportdocs" in getattr(file, 'name', '').lower()):
                     detected_category = None
                     for _, row in temp_df.head(10).iterrows():
                         row_str = str(row.values).lower()
@@ -197,11 +197,12 @@ def process_uploaded_logs(_uploaded_files=None):
                         elif "non conformance" in row_str or "non-conformance" in row_str or "type: ncr" in row_str: detected_category = "NCR"
                         if detected_category: break
                             
+                    skip_rows = 10 if "In case any cell is highlighted" in str(temp_df.columns[0]) else 0
                     if file_path and os.path.exists(file_path):
-                        temp_df = pd.read_excel(file_path, skiprows=10, engine='calamine')
+                        temp_df = pd.read_excel(file_path, skiprows=skip_rows, engine='calamine')
                     else:
                         file_bytes.seek(0)
-                        temp_df = pd.read_excel(file_bytes, skiprows=10, engine='calamine')
+                        temp_df = pd.read_excel(file_bytes, skiprows=skip_rows, engine='calamine')
                     
                     col_map = {}
                     if 'Revision Date' in temp_df.columns: col_map['Revision Date'] = 'Date'
@@ -363,88 +364,115 @@ def process_uploaded_logs(_uploaded_files=None):
     # 3. Structural Concrete Placement Data
     concrete_df = None
     if _uploaded_files:
-        conc_file = next((f for f in _uploaded_files if 'concrete' in getattr(f, 'name', '').lower()), None)
+        conc_file = next((f for f in _uploaded_files if any(k in getattr(f, 'name', '').lower() for k in ['cast insitu', 'cast in situ', 'concrete'])), None)
         if conc_file:
             try:
                 import io
+                import openpyxl
                 conc_path = getattr(conc_file, 'path', None)
-                if conc_path and os.path.exists(conc_path):
-                    xls = pd.ExcelFile(conc_path)
-                else:
-                    xls = pd.ExcelFile(io.BytesIO(conc_file.read()))
+                file_target = conc_path if (conc_path and os.path.exists(conc_path)) else io.BytesIO(conc_file.read())
                 
-                apportioned_data = []
-                elements = ['Columns', 'External Wall', 'Internal Wall', 'Slab']
+                wb = openpyxl.load_workbook(file_target, read_only=True, data_only=True)
                 
-                for element in elements:
-                    if element not in xls.sheet_names:
-                        continue
-                        
-                    el_df = pd.read_excel(xls, sheet_name=element, header=None)
+                # Format A: Royal Opera House Master "Cast In Situ Tracker"
+                if 'Cast In Situ Tracker' in wb.sheetnames:
+                    ws = wb['Cast In Situ Tracker']
+                    rows = []
+                    header = None
+                    for i, r in enumerate(ws.iter_rows(min_row=6, max_col=20, values_only=True)):
+                        if i == 0:
+                            header = [str(x).strip() if x is not None else f'col_{idx}' for idx, x in enumerate(r)]
+                            continue
+                        if r[0] is None and r[11] is None and r[16] is None:
+                            continue
+                        rows.append(r)
                     
-                    m3_row_idx = None
-                    for i, row in el_df.iterrows():
-                        row_str = str(row.values).lower()
-                        if 'concrete quantity' in row_str or 'm3' in row_str:
-                            m3_row_idx = i
-                            break
-                            
-                    if m3_row_idx is None:
-                        continue
+                    if rows and header:
+                        c_raw = pd.DataFrame(rows, columns=header)
+                        c_raw['Date'] = pd.to_datetime(c_raw['Date of Casting'], errors='coerce')
+                        c_raw = c_raw[c_raw['Date'].notna()]
+                        c_raw['Date'] = c_raw['Date'].dt.date
+                        c_raw['Volume'] = pd.to_numeric(c_raw['Concrete Quantity (m3)'], errors='coerce').fillna(0)
                         
-                    date_row_idx = None
-                    for i in range(min(15, len(el_df))):
-                        has_date = False
-                        for val in el_df.iloc[i, 4:10].values:
-                            if isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)):
-                                has_date = True
+                        def norm_c_zone(z):
+                            z_str = str(z).strip()
+                            if not z_str or z_str.lower() in ['none', 'nan']: return 'Site-wide'
+                            if z_str.isdigit(): return f'Zone {int(z_str)}'
+                            if not z_str.lower().startswith('zone'): return f'Zone {z_str}'
+                            return z_str
+                        c_raw['Zone'] = c_raw['Zone'].apply(norm_c_zone)
+                        
+                        def norm_c_element(e):
+                            el = str(e).lower()
+                            if 'raft' in el or 'foundation' in el or 'footing' in el: return 'Raft & Foundation'
+                            if 'blinding' in el: return 'Blinding'
+                            if 'column' in el: return 'Columns'
+                            if 'wall' in el: return 'Walls'
+                            if 'slab' in el: return 'Slab'
+                            if 'stair' in el: return 'Stairs'
+                            if 'beam' in el: return 'Beams'
+                            return 'Other Concrete'
+                        c_raw['Element'] = c_raw['Element and Inspection Description'].apply(norm_c_element)
+                        
+                        c_raw = c_raw[c_raw['Volume'] > 0]
+                        c_raw = c_raw[pd.to_datetime(c_raw['Date']).dt.year >= 2024]
+                        concrete_df = c_raw[['Zone', 'Date', 'Element', 'Volume']].copy()
+                
+                # Format B: Legacy Multi-sheet format
+                elif any(elem in wb.sheetnames for elem in ['Columns', 'Slab', 'Internal Wall']):
+                    xls = pd.ExcelFile(file_target)
+                    apportioned_data = []
+                    elements = ['Columns', 'External Wall', 'Internal Wall', 'Slab']
+                    for element in elements:
+                        if element not in xls.sheet_names:
+                            continue
+                        el_df = pd.read_excel(xls, sheet_name=element, header=None)
+                        m3_row_idx = None
+                        for i, row in el_df.iterrows():
+                            row_str = str(row.values).lower()
+                            if 'concrete quantity' in row_str or 'm3' in row_str:
+                                m3_row_idx = i
                                 break
-                        if has_date:
-                            date_row_idx = i
-                            break
-                            
-                    if date_row_idx is None:
-                        continue
-                        
-                    dates = el_df.iloc[date_row_idx, 4:].values
-                    zone_data = el_df.iloc[date_row_idx+1:m3_row_idx, [2] + list(range(4, el_df.shape[1]))].copy()
-                    zone_data.columns = ['Zone'] + list(dates)
-                    
-                    zone_data = zone_data.dropna(subset=['Zone'])
-                    zone_data = zone_data[zone_data['Zone'].astype(str).str.contains('Zone', case=False)]
-                    
-                    valid_dates = [d for d in dates if pd.notna(d) and not isinstance(d, str)]
-                    melted = pd.melt(zone_data, id_vars=['Zone'], value_vars=valid_dates)
-                    melted.columns = ['Zone', 'Date', 'RawValue']
-                    melted['RawValue'] = pd.to_numeric(melted['RawValue'], errors='coerce').fillna(0)
-                    
-                    m3_data = el_df.iloc[m3_row_idx, 4:].values
-                    daily_m3 = pd.DataFrame({'Date': dates, 'DailyM3': m3_data})
-                    daily_m3 = daily_m3[daily_m3['Date'].isin(valid_dates)]
-                    daily_m3['DailyM3'] = pd.to_numeric(daily_m3['DailyM3'], errors='coerce').fillna(0)
-                    
-                    merged = pd.merge(melted, daily_m3, on='Date', how='left')
-                    daily_totals = merged.groupby('Date')['RawValue'].transform('sum')
-                    merged['Volume'] = 0.0
-                    mask = daily_totals > 0
-                    merged.loc[mask, 'Volume'] = merged.loc[mask, 'DailyM3'] * (merged.loc[mask, 'RawValue'] / daily_totals[mask])
-                    
-                    merged['Element'] = element
-                    apportioned_data.append(merged[['Zone', 'Date', 'Element', 'Volume']])
-                    
-                if apportioned_data:
-                    final_df = pd.concat(apportioned_data, ignore_index=True)
-                    final_df = final_df[final_df['Volume'] > 0]
-                    final_df['Element'] = final_df['Element'].replace({
-                        'Internal Wall': 'Walls', 
-                        'External Wall': 'Walls'
-                    })
-                    
-                    # Sanitize dates and remove year-1900 typo rows
-                    final_df['Date'] = pd.to_datetime(final_df['Date'], errors='coerce')
-                    final_df = final_df[final_df['Date'].dt.year >= 2020]
-                    final_df['Date'] = final_df['Date'].dt.date
-                    concrete_df = final_df
+                        if m3_row_idx is None: continue
+                        date_row_idx = None
+                        for i in range(min(15, len(el_df))):
+                            has_date = False
+                            for val in el_df.iloc[i, 4:10].values:
+                                if isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)):
+                                    has_date = True
+                                    break
+                            if has_date:
+                                date_row_idx = i
+                                break
+                        if date_row_idx is None: continue
+                        dates = el_df.iloc[date_row_idx, 4:].values
+                        zone_data = el_df.iloc[date_row_idx+1:m3_row_idx, [2] + list(range(4, el_df.shape[1]))].copy()
+                        zone_data.columns = ['Zone'] + list(dates)
+                        zone_data = zone_data.dropna(subset=['Zone'])
+                        zone_data = zone_data[zone_data['Zone'].astype(str).str.contains('Zone', case=False)]
+                        valid_dates = [d for d in dates if pd.notna(d) and not isinstance(d, str)]
+                        melted = pd.melt(zone_data, id_vars=['Zone'], value_vars=valid_dates)
+                        melted.columns = ['Zone', 'Date', 'RawValue']
+                        melted['RawValue'] = pd.to_numeric(melted['RawValue'], errors='coerce').fillna(0)
+                        m3_data = el_df.iloc[m3_row_idx, 4:].values
+                        daily_m3 = pd.DataFrame({'Date': dates, 'DailyM3': m3_data})
+                        daily_m3 = daily_m3[daily_m3['Date'].isin(valid_dates)]
+                        daily_m3['DailyM3'] = pd.to_numeric(daily_m3['DailyM3'], errors='coerce').fillna(0)
+                        merged = pd.merge(melted, daily_m3, on='Date', how='left')
+                        daily_totals = merged.groupby('Date')['RawValue'].transform('sum')
+                        merged['Volume'] = 0.0
+                        mask = daily_totals > 0
+                        merged.loc[mask, 'Volume'] = merged.loc[mask, 'DailyM3'] * (merged.loc[mask, 'RawValue'] / daily_totals[mask])
+                        merged['Element'] = element
+                        apportioned_data.append(merged[['Zone', 'Date', 'Element', 'Volume']])
+                    if apportioned_data:
+                        final_df = pd.concat(apportioned_data, ignore_index=True)
+                        final_df = final_df[final_df['Volume'] > 0]
+                        final_df['Element'] = final_df['Element'].replace({'Internal Wall': 'Walls', 'External Wall': 'Walls'})
+                        final_df['Date'] = pd.to_datetime(final_df['Date'], errors='coerce')
+                        final_df = final_df[final_df['Date'].dt.year >= 2020]
+                        final_df['Date'] = final_df['Date'].dt.date
+                        concrete_df = final_df
             except Exception as e:
                 print(f"Notice: concrete log parser: {e}")
                 
