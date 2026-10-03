@@ -4,7 +4,6 @@ import sys
 import time
 import sqlite3
 import pandas as pd
-from playwright.async_api import async_playwright
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'auto_logs', 'qc_master.db')
 TIMESTAMP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'auto_logs', 'last_sync_timestamp.txt')
@@ -39,6 +38,12 @@ async def fetch_delta_from_aconex(since_datetime_str):
     Connects to Aconex, queries only documents modified since `since_datetime_str`,
     and returns a pandas DataFrame with only the updated rows.
     """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        print("[SYNC] Playwright is not installed on this cloud environment. Skipping browser automation.")
+        return None
+
     username = os.environ.get('ACONEX_USER', 'uzair_ahmad@cscec6bcd.cn')
     password = os.environ.get('ACONEX_PASSWORD', '*Ayisha@123*')
 
