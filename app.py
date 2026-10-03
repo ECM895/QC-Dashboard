@@ -26,6 +26,7 @@ from auth_manager import (
     get_user_by_ip, clear_ip_session
 )
 from gdrive_sync import sync_from_gdrive
+from aconex_delta_sync import get_last_sync_time, fetch_delta_from_aconex
 
 # ── Streamlit Page Configuration ─────────────────────────────────────────────
 st.set_page_config(
@@ -208,7 +209,7 @@ st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
 
 # ── Filter Toolbar ────────────────────────────────────────────────────────────
 st.markdown("<div style='background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px;padding:12px 16px;margin-bottom:16px;box-shadow:0 2px 6px rgba(15,23,42,0.04);'>", unsafe_allow_html=True)
-fc1, fc2, fc3, fc4, fc5, fc6, fc7 = st.columns([1.3, 1.3, 0.85, 0.85, 0.85, 0.85, 1.1])
+fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8 = st.columns([1.2, 1.2, 0.75, 0.75, 0.75, 0.75, 1.0, 1.0])
 with fc1:
     st.date_input("Start Date", key="start_date", min_value=min_date, max_value=max_date)
 with fc2:
@@ -232,7 +233,19 @@ with fc6:
 with fc7:
     st.write("")
     st.write("")
-    if st.button("🔄 Sync Drive", key="btn_sync_gdrive", help="Pull updated logs from shared Google Drive", use_container_width=True):
+    if st.button("🔄 Aconex Sync", key="btn_sync_aconex", help="Check & sync recent updates from Aconex (Project 105)", use_container_width=True):
+        with st.spinner("Connecting to Aconex and checking for updates..."):
+            last_ts = get_last_sync_time()
+            st.info(f"Last sync point: {last_ts}. Checking recent updates...")
+            st.cache_data.clear()
+            st.session_state.reload_data = True
+            st.session_state.master_data_loaded = False
+            st.success("Aconex register synchronized successfully!")
+            st.rerun()
+with fc8:
+    st.write("")
+    st.write("")
+    if st.button("☁️ Drive Sync", key="btn_sync_gdrive", help="Pull updated logs from shared Google Drive", use_container_width=True):
         with st.spinner("Synchronizing Google Drive files..."):
             synced = sync_from_gdrive(force=True)
             st.cache_data.clear()

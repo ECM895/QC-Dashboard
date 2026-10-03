@@ -243,6 +243,10 @@ def process_uploaded_logs(_uploaded_files=None):
                         combined_s = f"{raw_status} {raw_review}".strip()
                         cat = row.get('Category', '')
                         
+                        # Exclude internal / non-contractual review workflows
+                        if any(term in combined_s for term in ['withdrawn', 'qa rejected', 'terminated', 'for information']):
+                            return 'IGNORE'
+                        
                         if cat == 'NCR':
                             if any(x in combined_s for x in ['approved', 'closed', 'close', 'approve', 'pass']):
                                 return 'Closed'
@@ -914,7 +918,7 @@ def get_kpi_summary_data(start_date=None, end_date=None):
     cum_table = build_summary_table(df_kpi)
 
     # Filtered / Monthly table
-    if start_date and end_date:
+    if start_date is not None and end_date is not None:
         s_dt = pd.to_datetime(start_date)
         e_dt = pd.to_datetime(end_date)
         period_subset = df_kpi[(df_kpi['Date'] >= s_dt) & (df_kpi['Date'] <= e_dt)]
