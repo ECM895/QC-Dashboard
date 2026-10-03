@@ -607,6 +607,7 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             disc = f"{p_data['Area']} — {disc}"
             
         desc_text = p_data.get('Description', r.get('Description', 'Quality Non-Conformance'))
+        zone_val = normalize_zone(desc_text, doc_no)
         sr_num = p_data.get('Sr', '')
         days_passed_display = days_passed_str if days_passed_str else f"{days_open} d [{'OVERDUE' if days_open >= 60 else '< 2 Months'}]"
         
