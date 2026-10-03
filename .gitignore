@@ -23,3 +23,8 @@ test.pptx
 *.html
 plan_status.txt
 login_page.png
+*.png
+*.db
+~$*
+_old_logs_archive/
+_scripts_archive/

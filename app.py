@@ -968,7 +968,7 @@ elif st.session_state.current_view == "NCR":
 # VIEW: WEEKLY QUALITY STATUS REPORT (MATCHING PPT)
 # =============================================================================
 elif st.session_state.current_view == "WEEKLY":
-    render_weekly_report_view()
+    render_weekly_report_view(df)
 
 # =============================================================================
 # VIEW 4: STRUCTURAL CONCRETE CENTER

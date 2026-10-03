@@ -1,163 +1,127 @@
 import asyncio
 from playwright.async_api import async_playwright
 import os
+import sys
 import time
+import shutil
 
-DOWNLOAD_DIR = os.path.join(os.getcwd(), 'auto_logs')
+DOWNLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'auto_logs')
 
-async def extract_log(page, doc_type):
-    print(f"\n--- Extracting {doc_type} ---")
-    
-    # 1. Clear filters
-    print("Clearing filters...")
-    try:
-        await page.click('text="Clear all filters"')
-        await page.wait_for_timeout(2000)
-    except:
-        pass
-        
-    # 2. Fill Type
-    print(f"Setting Type to: {doc_type}")
-    # The exact selector for "Type" is tricky. Let's find the input near the label "Type"
-    # Aconex uses complex inputs, but we can try clicking the field and typing
-    # In the screenshot, Type is a tokenized input box. 
-    try:
-        # Try to click the input field for Type
-        # Usually it's next to the label 'Type'
-        type_input = page.locator('label:has-text("Type")').locator('..').locator('input').first
-        await type_input.fill(doc_type)
-        await page.keyboard.press('Enter')
-        await page.wait_for_timeout(1000)
-    except Exception as e:
-        print(f"Failed to set Type: {e}")
-        return False
-        
-    # 3. Click Search
-    print("Clicking Search...")
-    try:
-        await page.click('button:has-text("Search")')
-        await page.wait_for_timeout(5000) # Wait for results to load
-    except Exception as e:
-        print(f"Failed to search: {e}")
-        return False
-        
-    # 4. Export to Excel
-    print("Exporting...")
-    try:
-        await page.click('button:has-text("Reports")')
-        await page.wait_for_timeout(1000)
-        
-        async with page.expect_download(timeout=60000) as download_info:
-            await page.click('text="Export to Excel"')
-        download = await download_info.value
-        
-        file_path = os.path.join(DOWNLOAD_DIR, f"{doc_type.replace(' ', '_')}_{int(time.time())}.xlsx")
-        await download.save_as(file_path)
-        print(f"Saved to {file_path}")
-        return True
-    except Exception as e:
-        print(f"Failed to export: {e}")
-        return False
-
-async def main():
+async def sync_aconex():
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    
-    # Clean old logs
-    for f in os.listdir(DOWNLOAD_DIR):
-        os.remove(os.path.join(DOWNLOAD_DIR, f))
-        
+    username = os.environ.get('ACONEX_USER', 'uzair_ahmad@cscec6bcd.cn')
+    password = os.environ.get('ACONEX_PASSWORD', '*Ayisha@123*')
+
+    print("=" * 60)
+    print("STARTING LIVE ACONEX SYNC FOR PROJECT 105 (OPERA HOUSE)")
+    print("=" * 60)
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(accept_downloads=True)
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={"width": 1400, "height": 900},
+            accept_downloads=True
+        )
         page = await context.new_page()
-        
+
+        aconex_page = None
         try:
-            print("Logging in...")
-            await page.goto('https://ksa1.aconex.com/Logon')
-            await page.wait_for_timeout(3000)
+            print("1. Navigating to Oracle Lobby Login...")
+            await page.goto("https://constructionandengineering.oraclecloud.com/idcsLogin")
+
+            print(f"2. Submitting username: {username}...")
+            user_input = page.locator('input[autocomplete="username"], input[placeholder*="user@company.com"]').first
+            await user_input.wait_for(state="visible", timeout=30000)
+            await user_input.fill(username)
+            await page.keyboard.press("Enter")
+
+            await asyncio.sleep(4)
+            print("3. Submitting password...")
+            pwd_input = page.locator('input[type="password"]').first
+            await pwd_input.wait_for(state="visible", timeout=30000)
+            await pwd_input.fill(password)
+            await page.keyboard.press("Enter")
+
+            print("4. Waiting for Lobby to load projects...")
+            await page.wait_for_selector("text=DG Phase 2", timeout=45000)
+            print("Found DG Phase 2 project card.")
+
+            print("5. Launching DG Phase 2 in Aconex...")
+            async with context.expect_page() as new_page_info:
+                await page.click("text=DG Phase 2")
+            aconex_page = await new_page_info.value
+            await aconex_page.wait_for_load_state("networkidle")
+            print("Aconex Hub Loaded! URL:", aconex_page.url)
+
+            print("6. Navigating to Document Register...")
+            docs_btn = aconex_page.locator('button:has-text("Documents"), a:has-text("Documents"), [id*="nav-bar-DOC"]').first
+            await docs_btn.click()
+            await asyncio.sleep(1)
+            await aconex_page.click('#nav-bar-DOC-DOC-SEARCH')
+
+            print("Waiting for Document Register frame...")
+            await asyncio.sleep(6)
+
+            main_frame = None
+            for f in aconex_page.frames:
+                if "SearchControlledDoc" in f.url:
+                    main_frame = f
+                    break
+
+            if not main_frame:
+                raise Exception("Main Document Register frame (SearchControlledDoc) not found!")
+
+            print("7. Opening Reports dropdown...")
+            reports_btn = main_frame.locator('button:has-text("Reports")').first
+            await reports_btn.click()
+            await asyncio.sleep(1.5)
+
+            print("8. Triggering 'Export to Excel' download...")
+            export_link = main_frame.locator('a:has-text("Export to Excel"), text="Export to Excel"').first
             
-            user = os.environ.get('ACONEX_USERNAME', 'uzair_ahmad')
-            pwd = os.environ.get('ACONEX_PASSWORD', '*Abubakar@123*')
-            await page.click('#userName')
-            await page.keyboard.type(user)
-            
-            await page.click('#password')
-            await page.keyboard.type(pwd)
-            
-            await page.click('#login')
-            await page.wait_for_timeout(10000)
-            
-            print("Navigating to Document Register...")
-            # Click Documents -> Document Register
-            await page.click('text="Documents"')
-            await page.wait_for_timeout(1000)
-            await page.click('text="Document Register"')
-            await page.wait_for_timeout(5000)
-            
-            # Map exact Aconex types to their standard Dashboard abbreviations
-            types_to_extract = {
-                "Work Inspection Request": "WIR",
-                "Material Inspection Request": "MIR",
-                "Material Approval Request": "MAR", 
-                "Method Statement": "MST",
-                "Inspection and Test Plan": "ITP",
-                "Shop Drawing": "SHD",
-                "Non Conformance Report": "NCR"
-            }
-            
-            for doc_type, abbreviation in types_to_extract.items():
-                print(f"\n--- Extracting {doc_type} ({abbreviation}) ---")
-                
-                # 1. Clear filters
-                print("Clearing filters...")
+            timestamp = time.strftime("%Y%m%d_%H-%M")
+            target_filename = f"ExportDocs-{timestamp}.xlsx"
+            target_path = os.path.join(DOWNLOAD_DIR, target_filename)
+
+            async with aconex_page.expect_download(timeout=180000) as download_info:
+                # Force click if needed or dispatch event
                 try:
-                    await page.click('text="Clear all filters"')
-                    await page.wait_for_timeout(2000)
+                    await export_link.click(timeout=5000)
+                except:
+                    print("Direct click timed out, evaluating exportXLS() in frame...")
+                    await main_frame.evaluate("exportXLS()")
+
+            download = await download_info.value
+            await download.save_as(target_path)
+            print(f"9. SUCCESS! Export downloaded and saved to: {target_path}")
+
+            latest_path = os.path.join(DOWNLOAD_DIR, "ExportDocs_latest.xlsx")
+            if os.path.exists(latest_path):
+                try:
+                    os.remove(latest_path)
                 except:
                     pass
-                    
-                # 2. Fill Type
-                print(f"Setting Type to: {doc_type}")
-                try:
-                    type_input = page.locator('label:has-text("Type")').locator('..').locator('input').first
-                    await type_input.fill(doc_type)
-                    await page.keyboard.press('Enter')
-                    await page.wait_for_timeout(1000)
-                except Exception as e:
-                    print(f"Failed to set Type: {e}")
-                    continue
-                    
-                # 3. Click Search
-                print("Clicking Search...")
-                try:
-                    await page.click('button:has-text("Search")')
-                    await page.wait_for_timeout(5000) # Wait for results
-                except Exception as e:
-                    print(f"Failed to search: {e}")
-                    continue
-                    
-                # 4. Export to Excel
-                print("Exporting...")
-                try:
-                    await page.click('button:has-text("Reports")')
-                    await page.wait_for_timeout(1000)
-                    
-                    async with page.expect_download(timeout=60000) as download_info:
-                        await page.click('text="Export to Excel"')
-                    download = await download_info.value
-                    
-                    # Prefix the filename with the abbreviation (e.g. WIR_xxx.xlsx)
-                    # This ensures data_handler.py perfectly categorizes the file.
-                    file_path = os.path.join(DOWNLOAD_DIR, f"{abbreviation}_{doc_type.replace(' ', '_')}_{int(time.time())}.xlsx")
-                    await download.save_as(file_path)
-                    print(f"Saved to {file_path}")
-                except Exception as e:
-                    print(f"Failed to export: {e}")
-                
+            shutil.copy2(target_path, latest_path)
+            print(f"Updated latest master copy at: {latest_path}")
+
+            print("=" * 60)
+            print("ACONEX SYNC COMPLETED SUCCESSFULLY!")
+            print("=" * 60)
+            return target_path
+
         except Exception as e:
-            print(f"Critical error: {e}")
+            print(f"ERROR during Aconex Sync: {e}")
+            if aconex_page:
+                try:
+                    await aconex_page.screenshot(path="aconex_sync_error.png")
+                except:
+                    pass
+            else:
+                await page.screenshot(path="aconex_sync_error.png")
+            raise e
         finally:
             await browser.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(sync_aconex())
