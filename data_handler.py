@@ -119,10 +119,16 @@ def find_latest_ncr_ppt():
                         return full_p
     return None
 
+def _safe_read_excel(source, skiprows=0):
+    try:
+        return pd.read_excel(source, skiprows=skiprows, engine='calamine')
+    except Exception:
+        return pd.read_excel(source, skiprows=skiprows)
+
 def process_uploaded_logs(_uploaded_files=None):
     """
     High-performance ingestion engine for Aconex master registers and auxiliary logs.
-    Reads Excel files using the ultra-fast Rust-based calamine engine.
+    Reads Excel files using calamine when available, falling back to openpyxl.
     """
     is_mock = False
     dfs = []
@@ -143,11 +149,8 @@ def process_uploaded_logs(_uploaded_files=None):
                 import io
                 # Support both file paths and Streamlit UploadedFile objects
                 file_path = getattr(file, 'path', None)
-                if file_path and os.path.exists(file_path):
-                    temp_df = pd.read_excel(file_path, engine='calamine')
-                else:
-                    file_bytes = io.BytesIO(file.read())
-                    temp_df = pd.read_excel(file_bytes, engine='calamine')
+                source = file_path if (file_path and os.path.exists(file_path)) else io.BytesIO(file.read())
+                temp_df = _safe_read_excel(source)
                 
                 # Check for Custom NCR Log Format
                 if len(temp_df.columns) > 0 and "NON-CONFORMANCE REPORT" in str(temp_df.columns[0]):
@@ -198,14 +201,13 @@ def process_uploaded_logs(_uploaded_files=None):
                         if detected_category: break
                             
                     skip_rows = 10 if "In case any cell is highlighted" in str(temp_df.columns[0]) else 0
-                    if file_path and os.path.exists(file_path):
-                        temp_df = pd.read_excel(file_path, skiprows=skip_rows, engine='calamine')
-                    else:
-                        file_bytes.seek(0)
-                        temp_df = pd.read_excel(file_bytes, skiprows=skip_rows, engine='calamine')
+                    temp_df = _safe_read_excel(source, skiprows=skip_rows)
                     
                     col_map = {}
-                    if 'Revision Date' in temp_df.columns: col_map['Revision Date'] = 'Date'
+                    if 'Date Modified' in temp_df.columns:
+                        temp_df['Date'] = temp_df['Date Modified'].combine_first(temp_df.get('Revision Date'))
+                    elif 'Revision Date' in temp_df.columns:
+                        temp_df['Date'] = temp_df['Revision Date']
                     if 'Document No' in temp_df.columns: col_map['Document No'] = 'Reference No'
                     if 'Title' in temp_df.columns: col_map['Title'] = 'Description'
                     if 'Discipline' in temp_df.columns: col_map['Discipline'] = 'Area'
@@ -883,7 +885,10 @@ def get_kpi_summary_data(start_date=None, end_date=None):
         return 'Other'
 
     df_kpi['Code'] = df_kpi.apply(map_kpi_status, axis=1)
-    df_kpi['Date'] = pd.to_datetime(df_kpi['Revision Date'], errors='coerce')
+    if 'Date Modified' in df_kpi.columns:
+        df_kpi['Date'] = pd.to_datetime(df_kpi['Date Modified'].combine_first(df_kpi.get('Revision Date')), errors='coerce')
+    else:
+        df_kpi['Date'] = pd.to_datetime(df_kpi.get('Revision Date'), errors='coerce')
 
     kpi_categories_order = [
         'PEP', 'PQP', 'QA/QC Procedures', 'MTS', 'ITP', 'MAR', 'PQD', 'SDW'
