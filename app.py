@@ -28,6 +28,7 @@ from auth_manager import (
 from gdrive_sync import sync_from_gdrive
 from aconex_delta_sync import get_last_sync_time, fetch_delta_from_aconex
 from ncr_status_db import save_ncr_status_override, get_ncr_status_overrides
+from weekly_report_renderer import render_weekly_report_view
 
 # ── Streamlit Page Configuration ─────────────────────────────────────────────
 st.set_page_config(
@@ -188,6 +189,7 @@ nav_definitions = [
     ("OVERVIEW",   "📊 Overview"),
     ("DRILLDOWN",  "🔍 Categories"),
     ("NCR",        "⚠️ NCRs"),
+    ("WEEKLY",     "📑 Weekly Report"),
     ("CONCRETE",   "🏗️ Concrete"),
     ("TRAINING",   "🎓 Training"),
     ("LESSONS",    "💡 Lessons"),
@@ -961,6 +963,12 @@ elif st.session_state.current_view == "NCR":
         st.markdown("##### 📋 Complete Client Quality NCR Cumulative Register")
         st.markdown("<p style='color: #475569; font-size: 0.8rem; margin-top: -6px;'>Complete register of Client / Consultant (BV-BSW-105-0000-SOA-NCR-QL) non-conformances synchronized from master logs and slide updates.</p>", unsafe_allow_html=True)
         render_ncr_table_with_export(ncr_master, "All NCRs", "Client_NCR_Master_Register")
+
+# =============================================================================
+# VIEW: WEEKLY QUALITY STATUS REPORT (MATCHING PPT)
+# =============================================================================
+elif st.session_state.current_view == "WEEKLY":
+    render_weekly_report_view()
 
 # =============================================================================
 # VIEW 4: STRUCTURAL CONCRETE CENTER

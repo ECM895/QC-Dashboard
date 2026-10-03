@@ -1,6 +1,5 @@
 import os
 import time
-import gdown
 import streamlit as st
 
 GDRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/1woQ1E1KCa3ikUWp5YIlRaMdMwbMYkC8E?usp=sharing"
@@ -22,6 +21,7 @@ def sync_from_gdrive(force: bool = False) -> bool:
 
     st.session_state["last_gdrive_sync"] = now
     try:
+        import gdown
         # Download files into auto_logs
         downloaded = gdown.download_folder(
             url=GDRIVE_FOLDER_URL,
