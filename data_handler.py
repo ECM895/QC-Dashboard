@@ -109,6 +109,7 @@ def parse_ncr_ppt(ppt_path_or_bytes):
 
 def find_latest_ncr_ppt():
     """Locates the latest active NCR PowerPoint presentation in workspace folders."""
+    candidates = []
     for search_dir in SEARCH_DIRS:
         if os.path.exists(search_dir):
             for fn in os.listdir(search_dir):
@@ -116,7 +117,10 @@ def find_latest_ncr_ppt():
                 if fn.endswith('.pptx') and ('ncr' in fn.lower() or 'open' in fn.lower()):
                     full_p = os.path.join(search_dir, fn)
                     if os.path.isfile(full_p):
-                        return full_p
+                        candidates.append((full_p, os.path.getmtime(full_p)))
+    if candidates:
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates[0][0]
     return None
 
 def _safe_read_excel(source, skiprows=0):
@@ -603,13 +607,16 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
             disc = f"{p_data['Area']} — {disc}"
             
         desc_text = p_data.get('Description', r.get('Description', 'Quality Non-Conformance'))
-        zone_val = normalize_zone(desc_text, doc_no)
-
+        sr_num = p_data.get('Sr', '')
+        days_passed_display = days_passed_str if days_passed_str else f"{days_open} d [{'OVERDUE' if days_open >= 60 else '< 2 Months'}]"
+        
         reconciled.append({
+            'Sr': sr_num,
             'Document No': doc_no,
             'Description': desc_text,
             'Corrective Action': capa,
             'Issue Date': date_dt.date() if pd.notna(date_dt) else None,
+            'Days Passed': days_passed_display,
             'Days Open': days_open,
             'Current Status': status_note,
             'Status': final_status,
@@ -639,10 +646,12 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
         aging_cat = 'Closed' if final_status == 'Closed' else ('Overdue (> 2 Months)' if days_open >= 60 else 'Active (< 2 Months)')
 
         reconciled.append({
+            'Sr': p_data.get('Sr', ''),
             'Document No': doc_no,
             'Description': ppt_desc,
             'Corrective Action': p_data.get('CAPA', 'Action defined'),
             'Issue Date': date_dt.date() if pd.notna(date_dt) else None,
+            'Days Passed': p_data.get('DaysPassed', f"{days_open} d"),
             'Days Open': days_open,
             'Current Status': ppt_status,
             'Status': final_status,
@@ -653,6 +662,25 @@ def get_ncr_master_data(all_submittals_df, ppt_path=None):
         })
 
     master_df = pd.DataFrame(reconciled)
+    
+    # 3. Apply Team Real-Time Overrides from ncr_status_db
+    try:
+        from ncr_status_db import get_ncr_status_overrides
+        overrides = get_ncr_status_overrides()
+        if overrides and len(master_df) > 0:
+            for idx, r in master_df.iterrows():
+                d_no = str(r.get('Document No', '')).strip()
+                # Check direct match or substring match
+                match_ovr = next((v for k, v in overrides.items() if k in d_no or d_no in k), None)
+                if match_ovr:
+                    new_st = match_ovr['current_status']
+                    master_df.at[idx, 'Current Status'] = new_st
+                    if any(x in new_st.lower() for x in ['closed', 'passed', 'completed', 'approved']):
+                        master_df.at[idx, 'Status'] = 'Closed'
+                        master_df.at[idx, 'Aging Category'] = 'Closed'
+    except Exception as e:
+        print(f"Notice: could not apply NCR overrides: {e}")
+
     if len(master_df) > 0:
         master_df = master_df.sort_values(by=['Days Open'], ascending=False)
     return master_df

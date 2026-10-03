@@ -207,6 +207,80 @@ span:not([class*="material"]):not([data-testid="stIcon"]):not([class*="Material"
   color: #E2E8F0;
 }
 
+/* Executive PPT-Matched NCR Table */
+.ppt-ncr-table-container {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(15,23,42,0.06);
+  margin-top: 10px;
+  margin-bottom: 24px;
+  background: #FFFFFF;
+}
+
+.ppt-ncr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  text-align: left;
+}
+
+.ppt-ncr-table thead tr {
+  background: #14355A !important;
+  color: #FFFFFF !important;
+}
+
+.ppt-ncr-table th {
+  padding: 12px 14px;
+  font-weight: 700;
+  border-right: 1px solid rgba(255,255,255,0.12);
+  letter-spacing: -0.01em;
+}
+
+.ppt-ncr-table th:last-child {
+  border-right: none;
+}
+
+.ppt-ncr-table tbody tr {
+  border-bottom: 1px solid #EDF2F7;
+  transition: background 0.15s ease;
+}
+
+.ppt-ncr-table tbody tr:nth-child(even) {
+  background: #F8FAFC;
+}
+
+.ppt-ncr-table tbody tr:hover {
+  background: #EFF6FF;
+}
+
+.ppt-ncr-table td {
+  padding: 12px 14px;
+  vertical-align: top;
+  color: #1E293B;
+  line-height: 1.45;
+}
+
+.ppt-ncr-doc-no {
+  font-weight: 700;
+  color: #14355A;
+}
+
+.ppt-ncr-badge-overdue {
+  color: #DC2626;
+  font-weight: 700;
+}
+
+.ppt-ncr-badge-active {
+  color: #475569;
+  font-weight: 600;
+}
+
+.ppt-ncr-status-alert {
+  color: #DC2626;
+  font-weight: 600;
+}
+
 /* Section Title */
 .page-section-title {
   font-size: 1.05rem;

@@ -27,6 +27,7 @@ from auth_manager import (
 )
 from gdrive_sync import sync_from_gdrive
 from aconex_delta_sync import get_last_sync_time, fetch_delta_from_aconex
+from ncr_status_db import save_ncr_status_override, get_ncr_status_overrides
 
 # ── Streamlit Page Configuration ─────────────────────────────────────────────
 st.set_page_config(
@@ -787,27 +788,93 @@ elif st.session_state.current_view == "NCR":
                 df_disp['Current Status'].str.contains(q, case=False, na=False)
             ]
 
-        ncr_display_cols = [
-            'Document No', 'Zone', 'Discipline', 'Description', 'Corrective Action', 
-            'Issue Date', 'Days Open', 'Current Status', 'Origin'
+        # ── Quick Team Status Update Widget ──────────────────────────────────────────
+        with st.expander("✏️ Update NCR Current Status (Team Collaboration)", expanded=False):
+            st.markdown("<p style='font-size:0.8rem;color:#64748B;'>Select an NCR Document No. below to edit and save its live status note. The update will persist immediately for all team members.</p>", unsafe_allow_html=True)
+            u_c1, u_c2, u_c3 = st.columns([1.5, 2.5, 0.8])
+            with u_c1:
+                target_doc_list = sorted(list(df_disp['Document No'].unique()))
+                selected_doc = st.selectbox("Select NCR Document", target_doc_list, key=f"sel_doc_{default_export_name}")
+            with u_c2:
+                # Find current status for selected doc
+                cur_val = ""
+                match_row = df_disp[df_disp['Document No'] == selected_doc]
+                if len(match_row) > 0:
+                    cur_val = str(match_row['Current Status'].iloc[0])
+                new_status_input = st.text_area("Live Current Status Note", value=cur_val, key=f"new_stat_{default_export_name}_{selected_doc}", height=68)
+            with u_c3:
+                st.write("")
+                st.write("")
+                if st.button("💾 Save Status", key=f"btn_save_{default_export_name}_{selected_doc}", use_container_width=True):
+                    user_author = st.session_state.get("user_info", {}).get("username", "Team Member")
+                    save_ncr_status_override(selected_doc, new_status_input, updated_by=user_author)
+                    st.success(f"Status updated for {selected_doc}!")
+                    st.cache_data.clear()
+                    st.session_state.reload_data = True
+                    st.session_state.master_data_loaded = False
+                    st.rerun()
+
+        # ── Render Presentation-Exact HTML Table (Matching PPT) ─────────────────────
+        table_html = [
+            '<div class="ppt-ncr-table-container">',
+            '<table class="ppt-ncr-table">',
+            '<thead>',
+            '<tr>',
+            '<th style="width: 50px; text-align:center;">Sr.</th>',
+            '<th style="width: 200px;">NCR Document No.</th>',
+            '<th style="width: 280px;">NCR Description</th>',
+            '<th style="width: 280px;">Corrective Action</th>',
+            '<th style="width: 105px; text-align:center;">Issue Date</th>',
+            '<th style="width: 120px; text-align:center;">Days Passed</th>',
+            '<th>Current Status</th>',
+            '</tr>',
+            '</thead>',
+            '<tbody>'
         ]
-        cols_present = [c for c in ncr_display_cols if c in df_disp.columns]
-        
-        st.dataframe(
-            df_disp[cols_present],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Document No": st.column_config.TextColumn("NCR Document No.", width="medium"),
-                "Zone": st.column_config.TextColumn("Zone / Area", width="small"),
-                "Description": st.column_config.TextColumn("NCR Description", width="large"),
-                "Corrective Action": st.column_config.TextColumn("Corrective Action (CAPA)", width="large"),
-                "Issue Date": st.column_config.DateColumn("Issue Date", format="YYYY-MM-DD"),
-                "Days Open": st.column_config.NumberColumn("Days Passed", format="%d d"),
-                "Current Status": st.column_config.TextColumn("Current Status / Remarks", width="medium"),
-                "Origin": st.column_config.TextColumn("Origin", width="small")
-            }
-        )
+
+        # Reset serial numbers if not present
+        row_idx = 1
+        for _, row in df_disp.iterrows():
+            sr = str(row.get('Sr', '')).strip()
+            if not sr or sr == 'nan':
+                sr = str(row_idx)
+            row_idx += 1
+
+            doc_no = str(row.get('Document No', ''))
+            desc = str(row.get('Description', ''))
+            capa = str(row.get('Corrective Action', ''))
+            dt = str(row.get('Issue Date', ''))
+            days_passed = str(row.get('Days Passed', f"{row.get('Days Open', 0)} d"))
+            cur_status = str(row.get('Current Status', ''))
+
+            # Format Days Passed with [OVERDUE] styling matching PPT
+            if '[overdue]' in days_passed.lower() or (row.get('Days Open', 0) >= 60 and row.get('Status') == 'Open'):
+                d_val = days_passed.replace('[OVERDUE]', '').replace('[overdue]', '').strip()
+                days_html = f'<div style="font-weight:700;">{d_val}</div><div class="ppt-ncr-badge-overdue">[OVERDUE]</div>'
+            elif '[< 2 months]' in days_passed.lower():
+                d_val = days_passed.replace('[< 2 Months]', '').replace('[< 2 months]', '').strip()
+                days_html = f'<div style="font-weight:700;">{d_val}</div><div class="ppt-ncr-badge-active">[&lt; 2 Months]</div>'
+            else:
+                days_html = f'<div style="font-weight:700;">{days_passed}</div>'
+
+            # Status highlight (e.g. MEP team to check conflict in red)
+            if 'mep team' in cur_status.lower() or 'conflict' in cur_status.lower():
+                status_html = f'<span class="ppt-ncr-status-alert">{cur_status}</span>'
+            else:
+                status_html = f'<span>{cur_status}</span>'
+
+            table_html.append('<tr>')
+            table_html.append(f'<td style="text-align:center; font-weight:700; color:#1E293B;">{sr}</td>')
+            table_html.append(f'<td class="ppt-ncr-doc-no">{doc_no}</td>')
+            table_html.append(f'<td>{desc}</td>')
+            table_html.append(f'<td>{capa}</td>')
+            table_html.append(f'<td style="text-align:center; color:#334155; white-space:nowrap;">{dt}</td>')
+            table_html.append(f'<td style="text-align:center;">{days_html}</td>')
+            table_html.append(f'<td>{status_html}</td>')
+            table_html.append('</tr>')
+
+        table_html.append('</tbody></table></div>')
+        st.markdown("\n".join(table_html), unsafe_allow_html=True)
 
     tab_zone, tab_overdue, tab_active, tab_closed, tab_master = st.tabs([
         "🗺️ NCR Zone Analytics Dashboard",
