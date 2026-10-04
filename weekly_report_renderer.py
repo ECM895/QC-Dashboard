@@ -88,10 +88,39 @@ def calculate_dynamic_weekly_matrix(master_df, category_code, prev_start, prev_e
     return matrix
 
 
+def update_table_headers_with_dates(table_matrix, prev_start, prev_end, curr_start, curr_end):
+    """
+    Dynamically updates row 0 headers in all comparison tables to match the active confirmed dates.
+    Replaces static text like '17 Sep to 22 Sep' or '24 Sep to 30 Sep' with the confirmed intervals.
+    """
+    if not table_matrix or len(table_matrix) == 0:
+        return table_matrix
+
+    prev_lbl = f"Previous Week ({prev_start.strftime('%d %b')} to {prev_end.strftime('%d %b')})"
+    curr_lbl = f"Current Week ({curr_start.strftime('%d %b')} to {curr_end.strftime('%d %b')})"
+
+    new_matrix = [list(r) for r in table_matrix]
+    r0 = new_matrix[0]
+
+    found_first = False
+    for idx, cell in enumerate(r0):
+        c_lower = cell.lower().strip()
+        if not c_lower or c_lower in ['period', 'discipline', 'sr. no', 'kpi']:
+            continue
+
+        if any(k in c_lower for k in ['last week', 'previous week', '17 sep', 'first week']) or (not found_first and 'week' in c_lower):
+            r0[idx] = prev_lbl
+            found_first = True
+        elif any(k in c_lower for k in ['this week', 'current week', '24 sep', 'second week']) or (found_first and 'week' in c_lower):
+            r0[idx] = curr_lbl
+
+    return new_matrix
+
+
 def render_comparison_table(table_matrix, title=""):
     """
     Renders the exact 2-tier header table from PPT:
-    Period | Last Week (17 Sep to 22 Sep) | This Week (24 Sep to 30 Sep) | KPI
+    Period | Previous Week (prev_start to prev_end) | Current Week (curr_start to curr_end) | KPI
     """
     if not table_matrix or len(table_matrix) < 2:
         return
@@ -169,41 +198,90 @@ def render_comparison_table(table_matrix, title=""):
 
 def render_weekly_report_view(master_df=None):
     """
-    Renders the complete scrollable Weekly Quality Report with dynamic Previous vs. Current Week filters.
+    Renders the complete scrollable Weekly Quality Report with dynamic Previous vs. Current Week filters
+    and explicit confirmation/submit controls.
     """
-    st.markdown("""
-    <div style='background: linear-gradient(135deg, #14355A 0%, #1E40AF 100%); padding: 18px 22px; border-radius: 12px; color: white; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(20,53,90,0.15);'>
-        <div style='font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em;'>📋 Weekly Quality Status Report</div>
-        <div style='font-size: 0.85rem; opacity: 0.9; margin-top: 4px;'>Project: <strong>Royal Diriyah Opera House (105)</strong> &nbsp;&bull;&nbsp; Interactive Comparison between <strong>Previous Week</strong> and <strong>Current Week</strong> &nbsp;&bull;&nbsp; Live Sync with Aconex Register</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ── Interactive Week Selection Toolbar ─────────────────────────────────────────
-    st.markdown("<div style='background:#FFFFFF; border:1px solid #CBD5E1; border-radius:12px; padding:12px 18px; margin-bottom:20px; box-shadow:0 2px 6px rgba(15,23,42,0.04);'>", unsafe_allow_html=True)
-    st.markdown("<div style='font-weight:700; font-size:0.88rem; color:#1E3A8A; margin-bottom:8px;'>🗓️ Configure Comparison Intervals (Previous Week vs. Current Week)</div>", unsafe_allow_html=True)
-    
-    wcol1, wcol2, wcol3, wcol4, wcol5 = st.columns([1.2, 1.2, 1.2, 1.2, 0.9])
-    
-    # Defaults matching PPT baseline
+    # ── Session State Initialization for Confirmed Dates ──────────────────────────
     default_p_start = datetime.date(2026, 9, 17)
     default_p_end = datetime.date(2026, 9, 22)
     default_c_start = datetime.date(2026, 9, 24)
     default_c_end = datetime.date(2026, 9, 30)
 
-    with wcol1:
-        prev_start = st.date_input("Previous Week Start", value=default_p_start, key="wr_prev_start")
-    with wcol2:
-        prev_end = st.date_input("Previous Week End", value=default_p_end, key="wr_prev_end")
-    with wcol3:
-        curr_start = st.date_input("Current Week Start", value=default_c_start, key="wr_curr_start")
-    with wcol4:
-        curr_end = st.date_input("Current Week End", value=default_c_end, key="wr_curr_end")
-    with wcol5:
-        st.write("")
-        st.write("")
-        use_live_calc = st.checkbox("⚡ Live Calculate", value=False, help="Calculate weekly and cumulative metrics dynamically from the live Aconex master dataset")
+    if 'wr_confirmed_prev_start' not in st.session_state:
+        st.session_state.wr_confirmed_prev_start = default_p_start
+    if 'wr_confirmed_prev_end' not in st.session_state:
+        st.session_state.wr_confirmed_prev_end = default_p_end
+    if 'wr_confirmed_curr_start' not in st.session_state:
+        st.session_state.wr_confirmed_curr_start = default_c_start
+    if 'wr_confirmed_curr_end' not in st.session_state:
+        st.session_state.wr_confirmed_curr_end = default_c_end
+    if 'wr_confirmed_live_sync' not in st.session_state:
+        st.session_state.wr_confirmed_live_sync = True
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    c_p_start = st.session_state.wr_confirmed_prev_start
+    c_p_end = st.session_state.wr_confirmed_prev_end
+    c_c_start = st.session_state.wr_confirmed_curr_start
+    c_c_end = st.session_state.wr_confirmed_curr_end
+    use_live_calc = st.session_state.wr_confirmed_live_sync
+
+    prev_badge = f"{c_p_start.strftime('%d %b')} – {c_p_end.strftime('%d %b')}"
+    curr_badge = f"{c_c_start.strftime('%d %b')} – {c_c_end.strftime('%d %b')}"
+
+    st.markdown(f"""
+    <div style='background: linear-gradient(135deg, #14355A 0%, #1E40AF 100%); padding: 18px 22px; border-radius: 12px; color: white; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(20,53,90,0.15);'>
+        <div style='font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em;'>📋 Weekly Quality Status Report</div>
+        <div style='font-size: 0.85rem; opacity: 0.95; margin-top: 5px;'>
+            Project: <strong>Royal Diriyah Opera House (105)</strong> &nbsp;&bull;&nbsp; 
+            Comparison: <strong>Previous Week ({prev_badge})</strong> vs. <strong>Current Week ({curr_badge})</strong> &nbsp;&bull;&nbsp; 
+            <span style='background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:12px; font-weight:700;'>⚡ Active Report Interval</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Interactive Week Selection Form Toolbar with Confirm/Submit Button ─────────
+    with st.form(key="wr_date_configuration_form"):
+        st.markdown("<div style='font-weight:700; font-size:0.9rem; color:#1E3A8A; margin-bottom:4px;'>🗓️ Configure Comparison Intervals (Previous Week vs. Current Week)</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:0.78rem; color:#64748B; margin-bottom:12px;'>Select comparison date intervals and click <strong>Confirm & Update Report</strong> to update all table headers and KPI calculations across the entire report.</div>", unsafe_allow_html=True)
+        
+        wcol1, wcol2, wcol3, wcol4, wcol5 = st.columns([1.2, 1.2, 1.2, 1.2, 1.4])
+        
+        with wcol1:
+            form_prev_start = st.date_input("Previous Week Start", value=c_p_start, key="wr_inp_prev_start")
+        with wcol2:
+            form_prev_end = st.date_input("Previous Week End", value=c_p_end, key="wr_inp_prev_end")
+        with wcol3:
+            form_curr_start = st.date_input("Current Week Start", value=c_c_start, key="wr_inp_curr_start")
+        with wcol4:
+            form_curr_end = st.date_input("Current Week End", value=c_c_end, key="wr_inp_curr_end")
+        with wcol5:
+            st.write("")
+            st.write("")
+            submit_dates = st.form_submit_button("✅ Confirm & Update Report", type="primary", use_container_width=True)
+
+        chk_col1, chk_col2 = st.columns([2, 1])
+        with chk_col1:
+            form_live_sync = st.checkbox("⚡ Live Calculate metrics from Aconex submittals register", value=use_live_calc, key="wr_chk_live")
+        with chk_col2:
+            st.caption(f"Active Report Dates: **{prev_badge}** vs. **{curr_badge}**")
+
+        if submit_dates:
+            st.session_state.wr_confirmed_prev_start = form_prev_start
+            st.session_state.wr_confirmed_prev_end = form_prev_end
+            st.session_state.wr_confirmed_curr_start = form_curr_start
+            st.session_state.wr_confirmed_curr_end = form_curr_end
+            st.session_state.wr_confirmed_live_sync = form_live_sync
+            st.rerun()
+
+    # Reset button outside the form
+    r_col1, r_col2 = st.columns([4, 1.5])
+    with r_col2:
+        if st.button("↩️ Reset to Baseline PPT (17-22 / 24-30 Sep)", key="btn_wr_reset", use_container_width=True):
+            st.session_state.wr_confirmed_prev_start = default_p_start
+            st.session_state.wr_confirmed_prev_end = default_p_end
+            st.session_state.wr_confirmed_curr_start = default_c_start
+            st.session_state.wr_confirmed_curr_end = default_c_end
+            st.session_state.wr_confirmed_live_sync = True
+            st.rerun()
 
     slides = load_weekly_report_data()
     if not slides:
@@ -269,17 +347,19 @@ def render_weekly_report_view(master_df=None):
         # Check if live calculation requested for this slide's category
         if use_live_calc and (slide_no in slide_cat_map) and (master_df is not None):
             cat_code = slide_cat_map[slide_no]
-            dynamic_matrix = calculate_dynamic_weekly_matrix(master_df, cat_code, prev_start, prev_end, curr_start, curr_end)
+            dynamic_matrix = calculate_dynamic_weekly_matrix(master_df, cat_code, c_p_start, c_p_end, c_c_start, c_c_end)
             if dynamic_matrix:
                 render_comparison_table(dynamic_matrix, title=f"⚡ LIVE ACONEX SYNC TABLE: {cat_code}")
             elif tables:
                 for tbl in tables:
-                    render_comparison_table(tbl)
+                    updated_tbl = update_table_headers_with_dates(tbl, c_p_start, c_p_end, c_c_start, c_c_end)
+                    render_comparison_table(updated_tbl)
         else:
-            # Render Baseline PPT Tables
+            # Render Baseline PPT Tables with dynamically updated headers
             if tables:
                 for tbl in tables:
-                    render_comparison_table(tbl)
+                    updated_tbl = update_table_headers_with_dates(tbl, c_p_start, c_p_end, c_c_start, c_c_end)
+                    render_comparison_table(updated_tbl)
             else:
                 if slide_no in [18, 19]:
                     st.info("🎓 Training, Induction and Compliance records synchronized.")
