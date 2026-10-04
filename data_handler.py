@@ -258,13 +258,25 @@ def process_uploaded_logs(_uploaded_files=None):
                                 return 'Closed'
                             return 'Open'
                         else:
-                            s = raw_review if raw_review and raw_review != 'nan' else raw_status
-                            if not s or s == 'nan': return 'IGNORE'
-                            if 'approved with comments' in s or 'b-approved' in s: return 'B-Approved with Comments'
+                            # Primary source of truth in Aconex is the document Status (A-Approved, B-Approved with Comments, C-Revise and Resubmit, D-Rejected)
+                            # Only fall back to Review Status if document Status is generic/blank (e.g. For Review, For Approval)
+                            if 'approved with comments' in raw_status or 'b-approved' in raw_status:
+                                return 'B-Approved with Comments'
+                            elif 'approved' in raw_status and 'comments' not in raw_status and 'for approval' not in raw_status:
+                                return 'A-Approved'
+                            elif 'revise' in raw_status or 'resubmit' in raw_status:
+                                return 'C-Revise and Resubmit'
+                            elif 'reject' in raw_status and 'qa rejected' not in raw_status:
+                                return 'D-Rejected'
+
+                            # Fallback to Review Status if present
+                            s = raw_review if raw_review and raw_review != 'nan' else ''
+                            if 'approved with comments' in s: return 'B-Approved with Comments'
                             if 'approved' in s and 'comments' not in s: return 'A-Approved'
                             if 'revise' in s or 'resubmit' in s: return 'C-Revise and Resubmit'
                             if 'reject' in s: return 'D-Rejected'
                             return 'IGNORE'
+
                             
                     temp_df['Status'] = temp_df.apply(map_status, axis=1)
                     temp_df = temp_df[temp_df['Status'] != 'IGNORE']
