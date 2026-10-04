@@ -233,18 +233,58 @@ with fc6:
     st.write("")
     st.write("")
     st.button("Last 90D", key="btn_90d", on_click=apply_preset_90d, use_container_width=True)
-with fc7:
-    st.write("")
-    st.write("")
-    if st.button("🔄 Aconex Sync", key="btn_sync_aconex", help="Check & sync recent updates from Aconex (Project 105)", use_container_width=True):
-        with st.spinner("Connecting to Aconex and checking for updates..."):
-            last_ts = get_last_sync_time()
-            st.info(f"Last sync point: {last_ts}. Checking recent updates...")
+@st.dialog("🔄 Aconex Register Sync & Upload", width="large")
+def show_sync_dialog():
+    st.markdown("""
+    <div style='background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 10px; padding: 14px 18px; margin-bottom: 16px;'>
+        <div style='font-size: 1.05rem; font-weight: 800; color: #0F2942;'>📋 Aconex Master Register Status</div>
+        <div style='font-size: 0.85rem; color: #334155; margin-top: 4px;'>
+            <strong>Current Loaded Data Cut-off:</strong> 03 Oct 2026 (from <code>ExportDocs-20261003_21-26.xlsx</code>)<br>
+            <strong>Total Submittals in Register:</strong> 46,791 documents
+        </div>
+    </div>
+    <p style='font-size: 0.85rem; color: #475569;'>
+        To synchronize submittals submitted today (<strong>04 Oct 2026</strong>), choose one of the options below:
+    </p>
+    """, unsafe_allow_html=True)
+    
+    col_u1, col_u2 = st.columns(2)
+    with col_u1:
+        st.markdown("##### 📁 Option 1: Direct File Upload")
+        st.caption("Drag and drop your newly exported `ExportDocs.xlsx` or `Open NCRs.pptx` from Aconex:")
+        uploaded = st.file_uploader("Drop Aconex Excel / PPT", type=["xlsx", "xls", "pptx"], key="dlg_file_uploader")
+        if uploaded:
+            target_p = os.path.join(AUTO_DIR, uploaded.name)
+            with open(target_p, "wb") as f:
+                f.write(uploaded.getbuffer())
+            st.success(f"✅ Saved {uploaded.name} to auto_logs! Refreshing dashboard...")
             st.cache_data.clear()
             st.session_state.reload_data = True
             st.session_state.master_data_loaded = False
-            st.success("Aconex register synchronized successfully!")
+            time.sleep(1)
             st.rerun()
+            
+    with col_u2:
+        st.markdown("##### ☁️ Option 2: Shared Google Drive Sync")
+        st.caption("Pull updated files directly from the shared Google Drive folder:")
+        if st.button("🚀 Pull from Google Drive", key="btn_dlg_gdrive", type="primary", use_container_width=True):
+            with st.spinner("Checking and downloading files from Google Drive..."):
+                synced = sync_from_gdrive(force=True)
+                st.cache_data.clear()
+                st.session_state.reload_data = True
+                st.session_state.master_data_loaded = False
+                if synced:
+                    st.success("✅ Google Drive files updated successfully!")
+                else:
+                    st.info("ℹ️ Google Drive folder is already up to date with existing files.")
+                time.sleep(1)
+                st.rerun()
+
+with fc7:
+    st.write("")
+    st.write("")
+    if st.button("🔄 Aconex Sync", key="btn_sync_aconex", help="Check status or upload new Aconex export", use_container_width=True):
+        show_sync_dialog()
 with fc8:
     st.write("")
     st.write("")
@@ -254,7 +294,10 @@ with fc8:
             st.cache_data.clear()
             st.session_state.reload_data = True
             st.session_state.master_data_loaded = False
-            st.success("Google Drive synchronized successfully!")
+            if synced:
+                st.success("Google Drive synchronized successfully!")
+            else:
+                st.info("Google Drive is up to date.")
             st.rerun()
 
 st.markdown("</div>", unsafe_allow_html=True)
