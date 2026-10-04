@@ -222,17 +222,30 @@ def upsert_delta_to_db(docs):
     print(f"[DB] Upserted {upserted} documents. Total master records: {len(df_all)}.")
     return upserted
 
-def sync_from_aconex_screen(cutoff_date_str=None):
-    """Convenience synchronous wrapper to run fast screen sync."""
+def ensure_playwright_installed():
+    """Ensures playwright python package and chromium binaries are installed on cloud."""
     try:
         import playwright
     except ImportError:
-        raise RuntimeError("Playwright is not installed on Streamlit Community Cloud. Headless browser automation must run from your local workstation or a server with Playwright.")
+        import subprocess
+        subprocess.run(["pip", "install", "playwright"], check=True)
+    
+    # Check if chromium browser is installed or install it
+    import subprocess
+    try:
+        subprocess.run(["playwright", "install", "chromium"], check=True, timeout=120)
+    except Exception as e:
+        print(f"[PLAYWRIGHT INSTALL NOTICE]: {e}")
+
+def sync_from_aconex_screen(cutoff_date_str=None):
+    """Convenience synchronous wrapper to run fast screen sync."""
+    ensure_playwright_installed()
     docs = asyncio.run(scrape_aconex_screen(cutoff_date_str=cutoff_date_str))
     return upsert_delta_to_db(docs)
 
 # Backward-compatible alias
 fetch_delta_from_aconex = sync_from_aconex_screen
+
 
 if __name__ == "__main__":
     sync_from_aconex_screen()

@@ -5,3 +5,4 @@ openpyxl
 python-calamine
 python-pptx
 gdown
+playwright
