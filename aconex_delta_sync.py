@@ -231,6 +231,10 @@ def sync_from_aconex_screen(cutoff_date_str=None):
     docs = asyncio.run(scrape_aconex_screen(cutoff_date_str=cutoff_date_str))
     return upsert_delta_to_db(docs)
 
+# Backward-compatible alias
+fetch_delta_from_aconex = sync_from_aconex_screen
+
 if __name__ == "__main__":
     sync_from_aconex_screen()
+
 

@@ -26,9 +26,10 @@ from auth_manager import (
     get_user_by_ip, clear_ip_session
 )
 from gdrive_sync import sync_from_gdrive
-from aconex_delta_sync import get_last_sync_time, fetch_delta_from_aconex
+from aconex_delta_sync import get_last_sync_time, sync_from_aconex_screen
 from ncr_status_db import save_ncr_status_override, get_ncr_status_overrides
 from weekly_report_renderer import render_weekly_report_view
+
 
 # ── Streamlit Page Configuration ─────────────────────────────────────────────
 st.set_page_config(
