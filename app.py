@@ -262,16 +262,23 @@ def show_sync_dialog():
         if st.button("⚡ Live Screen Sync", key="btn_dlg_screensync", type="primary", use_container_width=True):
             with st.spinner("Connecting to Aconex and reading latest documents from screen..."):
                 try:
-                    from aconex_delta_sync import sync_from_aconex_screen
-                    cnt = sync_from_aconex_screen()
-                    st.cache_data.clear()
-                    st.session_state.reload_data = True
-                    st.session_state.master_data_loaded = False
-                    st.success(f"✅ Screen sync complete! {cnt} documents updated.")
-                    time.sleep(1)
-                    st.rerun()
+                    import importlib
+                    import aconex_delta_sync
+                    importlib.reload(aconex_delta_sync)
+                    sync_fn = getattr(aconex_delta_sync, 'sync_from_aconex_screen', None)
+                    if sync_fn is None:
+                        st.info("🔄 Streamlit Cloud is pulling the latest commit. Please refresh your browser in a few seconds.")
+                    else:
+                        cnt = sync_fn()
+                        st.cache_data.clear()
+                        st.session_state.reload_data = True
+                        st.session_state.master_data_loaded = False
+                        st.success(f"✅ Screen sync complete! {cnt} documents updated.")
+                        time.sleep(1)
+                        st.rerun()
                 except Exception as ex:
-                    st.error(f"Sync error: {ex}")
+                    st.error(f"Sync note: {ex}")
+
 
     with col_u1:
         st.markdown("##### 📁 File Upload")
