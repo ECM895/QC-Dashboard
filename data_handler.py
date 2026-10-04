@@ -277,9 +277,10 @@ def process_uploaded_logs(_uploaded_files=None):
                     temp_df = temp_df.drop(columns=junk_cols, errors='ignore')
 
                 if 'Date' in temp_df.columns:
-                    temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce')
+                    temp_df['Date'] = pd.to_datetime(temp_df['Date'], format='mixed', errors='coerce')
                     temp_df = temp_df[temp_df['Date'].notna()]
                     temp_df['Date'] = temp_df['Date'].dt.date
+
                     
                 dfs.append(temp_df)
             except Exception as e:

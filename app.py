@@ -243,23 +243,31 @@ def show_sync_dialog():
     except:
         pass
 
+    # Format cut-off nicely
+    formatted_cut_off = last_sync_info
+    try:
+        dt_val = pd.to_datetime(last_sync_info)
+        formatted_cut_off = dt_val.strftime("%d %b %Y")
+    except:
+        pass
+
     st.markdown(f"""
     <div style='background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 10px; padding: 14px 18px; margin-bottom: 16px;'>
         <div style='font-size: 1.05rem; font-weight: 800; color: #0F2942;'>📋 Aconex Master Register Status</div>
         <div style='font-size: 0.85rem; color: #334155; margin-top: 4px;'>
-            <strong>Current Live Cut-off:</strong> {last_sync_info}<br>
+            <strong>Current Live Cut-off:</strong> {formatted_cut_off} ({last_sync_info})<br>
             <strong>Synchronized Documents:</strong> 47,036+ documents
         </div>
     </div>
     <p style='font-size: 0.85rem; color: #475569;'>
-        To synchronize submittals submitted today (<strong>04 Oct 2026</strong>), choose one of the options below:
+        To synchronize submittals, choose one of the options below:
     </p>
     """, unsafe_allow_html=True)
 
     col_u0, col_u1, col_u2 = st.columns(3)
     with col_u0:
         st.markdown("##### ⚡ Direct Screen Sync")
-        st.caption("Read new docs straight from Aconex Document Register screen (no export download needed):")
+        st.caption("Read new docs straight from Aconex Document Register screen (runs locally where Playwright is installed):")
         if st.button("⚡ Live Screen Sync", key="btn_dlg_screensync", type="primary", use_container_width=True):
             with st.spinner("Connecting to Aconex and reading latest documents from screen..."):
                 try:
@@ -278,7 +286,8 @@ def show_sync_dialog():
                         time.sleep(1)
                         st.rerun()
                 except Exception as ex:
-                    st.error(f"Sync note: {ex}")
+                    st.warning(f"ℹ️ {ex}")
+
 
 
     with col_u1:
