@@ -235,29 +235,53 @@ with fc6:
     st.button("Last 90D", key="btn_90d", on_click=apply_preset_90d, use_container_width=True)
 @st.dialog("🔄 Aconex Register Sync & Upload", width="large")
 def show_sync_dialog():
-    st.markdown("""
+    last_sync_info = "Up to date"
+    try:
+        from aconex_delta_sync import get_last_sync_time
+        last_sync_info = get_last_sync_time()
+    except:
+        pass
+
+    st.markdown(f"""
     <div style='background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 10px; padding: 14px 18px; margin-bottom: 16px;'>
         <div style='font-size: 1.05rem; font-weight: 800; color: #0F2942;'>📋 Aconex Master Register Status</div>
         <div style='font-size: 0.85rem; color: #334155; margin-top: 4px;'>
-            <strong>Current Loaded Data Cut-off:</strong> 03 Oct 2026 (from <code>ExportDocs-20261003_21-26.xlsx</code>)<br>
-            <strong>Total Submittals in Register:</strong> 46,791 documents
+            <strong>Current Live Cut-off:</strong> {last_sync_info}<br>
+            <strong>Synchronized Documents:</strong> 47,036+ documents
         </div>
     </div>
     <p style='font-size: 0.85rem; color: #475569;'>
         To synchronize submittals submitted today (<strong>04 Oct 2026</strong>), choose one of the options below:
     </p>
     """, unsafe_allow_html=True)
-    
-    col_u1, col_u2 = st.columns(2)
+
+    col_u0, col_u1, col_u2 = st.columns(3)
+    with col_u0:
+        st.markdown("##### ⚡ Direct Screen Sync")
+        st.caption("Read new docs straight from Aconex Document Register screen (no export download needed):")
+        if st.button("⚡ Live Screen Sync", key="btn_dlg_screensync", type="primary", use_container_width=True):
+            with st.spinner("Connecting to Aconex and reading latest documents from screen..."):
+                try:
+                    from aconex_delta_sync import sync_from_aconex_screen
+                    cnt = sync_from_aconex_screen()
+                    st.cache_data.clear()
+                    st.session_state.reload_data = True
+                    st.session_state.master_data_loaded = False
+                    st.success(f"✅ Screen sync complete! {cnt} documents updated.")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Sync error: {ex}")
+
     with col_u1:
-        st.markdown("##### 📁 Option 1: Direct File Upload")
-        st.caption("Drag and drop your newly exported `ExportDocs.xlsx` or `Open NCRs.pptx` from Aconex:")
-        uploaded = st.file_uploader("Drop Aconex Excel / PPT", type=["xlsx", "xls", "pptx"], key="dlg_file_uploader")
+        st.markdown("##### 📁 File Upload")
+        st.caption("Drag and drop your newly exported `ExportDocs.xlsx` or `Open NCRs.pptx`:")
+        uploaded = st.file_uploader("Drop Aconex File", type=["xlsx", "xls", "pptx"], key="dlg_file_uploader")
         if uploaded:
             target_p = os.path.join(AUTO_DIR, uploaded.name)
             with open(target_p, "wb") as f:
                 f.write(uploaded.getbuffer())
-            st.success(f"✅ Saved {uploaded.name} to auto_logs! Refreshing dashboard...")
+            st.success(f"✅ Saved {uploaded.name} to auto_logs! Refreshing...")
             st.cache_data.clear()
             st.session_state.reload_data = True
             st.session_state.master_data_loaded = False
@@ -265,20 +289,21 @@ def show_sync_dialog():
             st.rerun()
             
     with col_u2:
-        st.markdown("##### ☁️ Option 2: Shared Google Drive Sync")
+        st.markdown("##### ☁️ Google Drive")
         st.caption("Pull updated files directly from the shared Google Drive folder:")
-        if st.button("🚀 Pull from Google Drive", key="btn_dlg_gdrive", type="primary", use_container_width=True):
-            with st.spinner("Checking and downloading files from Google Drive..."):
+        if st.button("🚀 Pull Drive", key="btn_dlg_gdrive", use_container_width=True):
+            with st.spinner("Checking Google Drive..."):
                 synced = sync_from_gdrive(force=True)
                 st.cache_data.clear()
                 st.session_state.reload_data = True
                 st.session_state.master_data_loaded = False
                 if synced:
-                    st.success("✅ Google Drive files updated successfully!")
+                    st.success("✅ Google Drive files updated!")
                 else:
-                    st.info("ℹ️ Google Drive folder is already up to date with existing files.")
+                    st.info("ℹ️ Google Drive is already up to date.")
                 time.sleep(1)
                 st.rerun()
+
 
 with fc7:
     st.write("")
