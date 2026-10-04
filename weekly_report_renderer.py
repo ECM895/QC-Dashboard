@@ -349,7 +349,7 @@ def render_weekly_report_view(master_df=None):
             cat_code = slide_cat_map[slide_no]
             dynamic_matrix = calculate_dynamic_weekly_matrix(master_df, cat_code, c_p_start, c_p_end, c_c_start, c_c_end)
             if dynamic_matrix:
-                render_comparison_table(dynamic_matrix, title=f"⚡ LIVE ACONEX SYNC TABLE: {cat_code}")
+                render_comparison_table(dynamic_matrix)
             elif tables:
                 for tbl in tables:
                     updated_tbl = update_table_headers_with_dates(tbl, c_p_start, c_p_end, c_c_start, c_c_end)
