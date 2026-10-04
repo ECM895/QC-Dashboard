@@ -224,8 +224,13 @@ def upsert_delta_to_db(docs):
 
 def sync_from_aconex_screen(cutoff_date_str=None):
     """Convenience synchronous wrapper to run fast screen sync."""
+    try:
+        import playwright
+    except ImportError:
+        raise RuntimeError("Playwright is not installed on Streamlit Community Cloud. Headless browser automation must run from your local workstation or a server with Playwright.")
     docs = asyncio.run(scrape_aconex_screen(cutoff_date_str=cutoff_date_str))
     return upsert_delta_to_db(docs)
 
 if __name__ == "__main__":
     sync_from_aconex_screen()
+
