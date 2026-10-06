@@ -100,15 +100,40 @@ async def scrape_aconex_screen(cutoff_date_str=None):
 
             frame = aconex_page.frame(name="main")
             if not frame:
+                for f in aconex_page.frames:
+                    if "SearchControlledDoc" in f.url:
+                        frame = f
+                        break
+            if not frame:
                 raise Exception("main frame not found")
 
-            print("[SYNC] 4. Triggering Search...")
+            print("[SYNC] 4. Clearing search inputs and default filters...")
+            await frame.evaluate("""() => {
+                for (const i of document.querySelectorAll('input')) {
+                    if (i.value === '*' || i.value === 'BV*') {
+                        i.value = '';
+                        i.dispatchEvent(new Event('input', { bubbles: true }));
+                        i.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }
+                const closeButtons = document.querySelectorAll('.ui-select-match-close, a.select2-search-choice-close, .close');
+                for (const b of closeButtons) {
+                    if (b.parentElement && b.parentElement.innerText.includes('Prequalification Submittal')) {
+                        b.click();
+                    }
+                }
+            }""")
+            await asyncio.sleep(2)
+
+            print("[SYNC] 5. Triggering Search...")
             btn = frame.locator('#searchButton').first
             await btn.click()
             await asyncio.sleep(8)
 
-            print("[SYNC] 5. Sorting by Date Modified DESC...")
+            print("[SYNC] 6. Sorting by Date Modified DESC...")
             hdr_locator = frame.locator('.ag-header-cell[col-id="registered"]').first
+            if await hdr_locator.count() == 0:
+                hdr_locator = frame.locator('.ag-header-cell:has-text("Date Modified")').first
             await hdr_locator.click()
             await asyncio.sleep(6)
 
@@ -132,8 +157,14 @@ async def scrape_aconex_screen(cutoff_date_str=None):
                     return indices.map(i => rowMap[i]).filter(r => r.docno);
                 }""")
 
+            docs_first = await grab_current_page()
+            if docs_first and (docs_first[0].get('registered', '').endswith('2024') or docs_first[0].get('registered', '').endswith('2025')):
+                print("[SYNC] Ascending sort detected. Re-clicking header for descending...")
+                await hdr_locator.click()
+                await asyncio.sleep(6)
+
             # Scrape pages
-            for page_num in range(1, 10):
+            for page_num in range(1, 15):
                 print(f"[SYNC] Reading Page {page_num} directly from screen...")
                 docs = await grab_current_page()
                 print(f"[SYNC] Page {page_num} yielded {len(docs)} documents.")
