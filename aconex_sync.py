@@ -132,6 +132,18 @@ async def sync_aconex():
                 f.write(today_str)
             print(f"Updated sync timestamp: {today_str}")
 
+            # Automatically push to GitHub so Streamlit Cloud updates instantly
+            try:
+                import subprocess
+                project_dir = os.path.dirname(os.path.abspath(__file__))
+                print("[GIT] Pushing newly exported file to GitHub for Streamlit Cloud...")
+                subprocess.run(["git", "add", "auto_logs/ExportDocs.xlsx", "auto_logs/last_sync_timestamp.txt"], cwd=project_dir, check=False)
+                subprocess.run(["git", "commit", "-m", f"chore(auto-sync): hourly full Aconex export update [{datetime.now().strftime('%Y-%m-%d %H:%M')}]"], cwd=project_dir, check=False)
+                subprocess.run(["git", "push", "origin", "main"], cwd=project_dir, check=False)
+                print("[GIT] Successfully pushed to origin main!")
+            except Exception as git_err:
+                print(f"[GIT NOTICE] {git_err}")
+
             print("=" * 60)
             print("ACONEX HOURLY FULL LOG DOWNLOAD COMPLETED SUCCESSFULLY!")
             print("=" * 60)

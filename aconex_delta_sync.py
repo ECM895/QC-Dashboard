@@ -251,6 +251,29 @@ def upsert_delta_to_db(docs):
         save_last_sync_time(max_date)
 
     print(f"[DB] Upserted {upserted} documents. Total master records: {len(df_all)}.")
+
+    # Automatically commit and push to GitHub so Streamlit Cloud (ecm-qc.streamlit.app) automatically refreshes
+    if upserted > 0:
+        try:
+            import subprocess
+            project_dir = os.path.dirname(os.path.abspath(__file__))
+            print("[GIT] Automatically pushing updated data to GitHub for Streamlit Cloud...")
+            subprocess.run(["git", "add", "auto_logs/ExportDocs.xlsx", "auto_logs/last_sync_timestamp.txt"], cwd=project_dir, check=False)
+            commit_res = subprocess.run(
+                ["git", "commit", "-m", f"chore(auto-sync): hourly Aconex log update [{datetime.now().strftime('%Y-%m-%d %H:%M')}]"],
+                cwd=project_dir, capture_output=True, text=True, check=False
+            )
+            if commit_res.returncode == 0:
+                push_res = subprocess.run(["git", "push", "origin", "main"], cwd=project_dir, capture_output=True, text=True, check=False)
+                if push_res.returncode == 0:
+                    print("[GIT] Successfully pushed updated logs to origin main! Streamlit Cloud is refreshing.")
+                else:
+                    print(f"[GIT NOTICE] Push returned: {push_res.stderr}")
+            else:
+                print(f"[GIT NOTICE] Commit status: {commit_res.stdout.strip()}")
+        except Exception as git_err:
+            print(f"[GIT NOTICE] Auto-push skipped: {git_err}")
+
     return upserted
 
 def ensure_playwright_installed():
