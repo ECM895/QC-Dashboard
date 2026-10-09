@@ -115,6 +115,8 @@ files_changed = st.session_state.get('cached_metadata_sig') != metadata_sig
 
 if 'master_data_loaded' not in st.session_state or st.session_state.get('reload_data', False) or files_changed:
     st.session_state.reload_data = False
+    if files_changed:
+        st.cache_data.clear()
     
     excel_metadata = [item for item in current_file_metadata if item[1].endswith(('.xlsx', '.xls'))]
     _df, _calibration_data, _concrete_df, _is_mock = load_and_cache_data(tuple(excel_metadata))
@@ -131,6 +133,11 @@ if 'master_data_loaded' not in st.session_state or st.session_state.get('reload_
 
     # Pre-calculate NCR master reconciliation once
     _ncr_master = get_ncr_master_data(_df)
+
+    # If new records extended the dataset, automatically advance the dashboard end date
+    prev_max = st.session_state.get('max_date', None)
+    if prev_max is not None and _max_date > prev_max:
+        st.session_state.end_date = _max_date
 
     st.session_state.master_df = _df
     st.session_state.calibration_data = _calibration_data

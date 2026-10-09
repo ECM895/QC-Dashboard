@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import shutil
+from datetime import datetime
 
 DOWNLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'auto_logs')
 
@@ -72,20 +73,44 @@ async def sync_aconex():
             if not main_frame:
                 raise Exception("Main Document Register frame (SearchControlledDoc) not found!")
 
-            print("7. Opening Reports dropdown...")
+            print("7. Clearing filters and ensuring full document register is searched...")
+            await main_frame.evaluate("""() => {
+                for (const i of document.querySelectorAll('input')) {
+                    if (i.value === '*' || i.value === 'BV*') {
+                        i.value = '';
+                        i.dispatchEvent(new Event('input', { bubbles: true }));
+                        i.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }
+                const closeButtons = document.querySelectorAll('.ui-select-match-close, a.select2-search-choice-close, .close');
+                for (const b of closeButtons) {
+                    if (b.parentElement && b.parentElement.innerText.includes('Prequalification Submittal')) {
+                        b.click();
+                    }
+                }
+            }""")
+            await asyncio.sleep(2)
+
+            search_btn = main_frame.locator('#searchButton').first
+            if await search_btn.count() > 0:
+                print("Clicking Search to refresh results...")
+                await search_btn.click()
+                await asyncio.sleep(6)
+
+            print("8. Opening Reports dropdown...")
             reports_btn = main_frame.locator('button:has-text("Reports")').first
             await reports_btn.click()
             await asyncio.sleep(1.5)
 
-            print("8. Triggering 'Export to Excel' download...")
+            print("9. Triggering 'Export to Excel' download...")
             export_link = main_frame.locator('a:has-text("Export to Excel"), text="Export to Excel"').first
             
             timestamp = time.strftime("%Y%m%d_%H-%M")
             target_filename = f"ExportDocs-{timestamp}.xlsx"
             target_path = os.path.join(DOWNLOAD_DIR, target_filename)
+            main_export_path = os.path.join(DOWNLOAD_DIR, "ExportDocs.xlsx")
 
             async with aconex_page.expect_download(timeout=180000) as download_info:
-                # Force click if needed or dispatch event
                 try:
                     await export_link.click(timeout=5000)
                 except:
@@ -94,19 +119,21 @@ async def sync_aconex():
 
             download = await download_info.value
             await download.save_as(target_path)
-            print(f"9. SUCCESS! Export downloaded and saved to: {target_path}")
+            print(f"10. SUCCESS! Full log downloaded and saved to: {target_path}")
 
-            latest_path = os.path.join(DOWNLOAD_DIR, "ExportDocs_latest.xlsx")
-            if os.path.exists(latest_path):
-                try:
-                    os.remove(latest_path)
-                except:
-                    pass
-            shutil.copy2(target_path, latest_path)
-            print(f"Updated latest master copy at: {latest_path}")
+            # Overwrite the primary ExportDocs.xlsx that the Streamlit app loads
+            shutil.copy2(target_path, main_export_path)
+            print(f"Updated primary app master at: {main_export_path}")
+
+            # Also update last_sync_timestamp.txt
+            today_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ts_file = os.path.join(DOWNLOAD_DIR, "last_sync_timestamp.txt")
+            with open(ts_file, "w") as f:
+                f.write(today_str)
+            print(f"Updated sync timestamp: {today_str}")
 
             print("=" * 60)
-            print("ACONEX SYNC COMPLETED SUCCESSFULLY!")
+            print("ACONEX HOURLY FULL LOG DOWNLOAD COMPLETED SUCCESSFULLY!")
             print("=" * 60)
             return target_path
 

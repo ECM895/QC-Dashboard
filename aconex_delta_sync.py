@@ -264,9 +264,9 @@ def ensure_playwright_installed():
     # Check if chromium browser is installed or install it
     import subprocess
     try:
-        subprocess.run(["playwright", "install", "chromium"], check=True, timeout=120)
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True, timeout=120)
     except Exception as e:
-        print(f"[PLAYWRIGHT INSTALL NOTICE]: {e}")
+        pass
 
 def sync_from_aconex_screen(cutoff_date_str=None):
     """Convenience synchronous wrapper to run fast screen sync."""
